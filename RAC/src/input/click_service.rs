@@ -132,7 +132,7 @@ impl ClickService {
 
         let service_clone = service.clone();
         spawn_click_thread("LeftClickThread", service_clone.clone(), MouseButton::Left);
-        
+
         let service_clone = service.clone();
         spawn_click_thread("RightClickThread", service_clone.clone(), MouseButton::Right);
 
@@ -188,7 +188,7 @@ impl ClickService {
                 let delay_range_max;
                 let random_deviation_min;
                 let random_deviation_max;
-                
+
                 {
                     let current_settings = self.settings.lock().unwrap();
                     target_process = current_settings.target_process.clone();
@@ -203,12 +203,12 @@ impl ClickService {
                 let target_process_changed = target_process != target_process_new;
                 let adaptive_cpu_mode_changed = adaptive_cpu_mode != new_settings.adaptive_cpu_mode;
                 let click_delay_changed = click_delay_micros != new_settings.click_delay_micros;
-                let delay_range_changed = 
-                    delay_range_min != new_settings.delay_range_min || 
-                    delay_range_max != new_settings.delay_range_max;
-                let deviation_changed = 
-                    random_deviation_min != new_settings.random_deviation_min || 
-                    random_deviation_max != new_settings.random_deviation_max;
+                let delay_range_changed =
+                    delay_range_min != new_settings.delay_range_min ||
+                        delay_range_max != new_settings.delay_range_max;
+                let deviation_changed =
+                    random_deviation_min != new_settings.random_deviation_min ||
+                        random_deviation_max != new_settings.random_deviation_max;
 
                 {
                     let mut current_settings = self.settings.lock().unwrap();
@@ -219,12 +219,12 @@ impl ClickService {
                     log_info(&format!("Target process updated to: {}", target_process_new), context);
                     let _ = self.window_finder.update_target_process(&target_process_new);
                 }
-                
+
                 if adaptive_cpu_mode_changed {
                     log_info(&format!("Adaptive CPU mode updated to: {}", if adaptive_cpu_mode { "disabled" } else { "enabled" }), context);
                     self.left_thread_controller.set_adaptive_mode(!adaptive_cpu_mode);
                 }
-                
+
                 if click_delay_changed || delay_range_changed || deviation_changed {
                     log_info("Click timing parameters updated", context);
 
@@ -304,6 +304,8 @@ impl ClickService {
             }
         }
 
+        let mut last_button_state = false;
+
         while !thread::panicking() {
             if !click_controller.wait_for_signal(Duration::from_millis(50)) {
                 continue;
@@ -317,6 +319,15 @@ impl ClickService {
                     unsafe { GetAsyncKeyState(0x02) < 0 }
                 }
             };
+
+            if last_button_state && !is_pressed {
+                match button {
+                    MouseButton::Left => self.left_click_executor.handle_button_release(),
+                    MouseButton::Right => self.right_click_executor.handle_button_release(),
+                }
+            }
+
+            last_button_state = is_pressed;
 
             if !is_pressed {
                 continue;
@@ -444,14 +455,14 @@ impl ClickService {
 
         log_info(
             &format!(
-                "Click service started with LEFT CPS={}, RIGHT CPS={}", 
+                "Click service started with LEFT CPS={}, RIGHT CPS={}",
                 self.left_click_executor.get_current_max_cps(),
                 self.right_click_executor.get_current_max_cps()
-            ), 
+            ),
             context
         );
     }
-    
+
     pub fn stop(&self) {
         let context = "ClickService::stop";
         log_info("Stopping click service", context);
@@ -463,7 +474,7 @@ impl ClickService {
 
 fn spawn_click_thread(name: &str, service: Arc<ClickService>, button: MouseButton) {
     let context = format!("ClickService::{}", name);
-    
+
     match thread::Builder::new()
         .name(name.to_string())
         .spawn(move || {

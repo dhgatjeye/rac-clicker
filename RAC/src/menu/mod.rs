@@ -770,21 +770,42 @@ impl Menu {
                 },
                 "5" => {
                     println!("Saving all settings...");
-                    
-                    let left_executor = self.click_service.get_left_click_executor();
-                    left_executor.set_max_cps(self.settings.left_max_cps);
-                    let left_mode = if self.settings.left_game_mode == "Combo" { GameMode::Combo } else { GameMode::Default };
-                    left_executor.set_game_mode(left_mode);
-                    
-                    let right_executor = self.click_service.get_right_click_executor();
-                    right_executor.force_right_cps(self.settings.right_max_cps);
-                    
-                    if let Err(e) = self.settings.save() {
-                        log_error(&format!("Failed to save settings: {}", e), context);
-                        println!("Failed to save settings! Press Enter to continue...");
-                    } else {
-                        println!("All settings saved successfully! Press Enter to continue...");
+
+                    self.settings.click_mode = match self.click_mode {
+                        ClickMode::LeftClick => "LeftClick".to_string(),
+                        ClickMode::RightClick => "RightClick".to_string(),
+                        ClickMode::Both => "Both".to_string(),
+                    };
+
+                    match self.click_mode {
+                        ClickMode::LeftClick => {
+                            let left_executor = self.click_service.get_left_click_executor();
+                            left_executor.set_mouse_button(MouseButton::Left);
+                            left_executor.set_max_cps(self.settings.left_max_cps);
+                            let left_mode = if self.settings.left_game_mode == "Combo" { GameMode::Combo } else { GameMode::Default };
+                            left_executor.set_game_mode(left_mode);
+                        },
+                        ClickMode::RightClick => {
+                            let right_executor = self.click_service.get_right_click_executor();
+                            right_executor.set_mouse_button(MouseButton::Right);
+                            right_executor.set_max_cps(self.settings.right_max_cps);
+                            let right_mode = if self.settings.right_game_mode == "Combo" { GameMode::Combo } else { GameMode::Default };
+                            right_executor.set_game_mode(right_mode);
+                        },
+                        ClickMode::Both => {
+                            let left_executor = self.click_service.get_left_click_executor();
+                            left_executor.set_mouse_button(MouseButton::Left);
+                            left_executor.set_max_cps(self.settings.left_max_cps);
+
+                            let right_executor = self.click_service.get_right_click_executor();
+                            right_executor.set_mouse_button(MouseButton::Right);
+                            right_executor.set_max_cps(self.settings.right_max_cps);
+                        }
                     }
+
+                    if let Err(e) = self.settings.save() {
+                    } else { }
+
                     let mut _input = String::new();
                     let _ = io::stdin().read_line(&mut _input);
                     return;
@@ -1220,25 +1241,55 @@ impl Menu {
             Ok(s) => s,
             Err(_) => Settings::default(),
         };
-        
-        if let Some(left_executor) = Arc::get_mut(&mut self.click_executor) {
-            left_executor.set_max_cps(settings.left_max_cps);
-            
-            let mode = match settings.left_game_mode.as_str() {
-                "Combo" => GameMode::Combo,
-                _ => GameMode::Default,
-            };
-            left_executor.set_game_mode(mode);
-            
-            settings.left_game_mode = settings.left_game_mode.clone();
+
+        self.click_mode = match settings.click_mode.as_str() {
+            "LeftClick" => ClickMode::LeftClick,
+            "RightClick" => ClickMode::RightClick,
+            "Both" => ClickMode::Both,
+            _ => ClickMode::LeftClick,
+        };
+
+        match self.click_mode {
+            ClickMode::LeftClick => {
+                if let Some(left_executor) = Arc::get_mut(&mut self.click_executor) {
+                    left_executor.set_mouse_button(MouseButton::Left);
+                    left_executor.set_max_cps(settings.left_max_cps);
+                    let mode = match settings.left_game_mode.as_str() {
+                        "Combo" => GameMode::Combo,
+                        _ => GameMode::Default,
+                    };
+                    left_executor.set_game_mode(mode);
+                }
+            },
+            ClickMode::RightClick => {
+                if let Some(right_executor) = Arc::get_mut(&mut self.click_executor) {
+                    right_executor.set_mouse_button(MouseButton::Right);
+                    right_executor.set_max_cps(settings.right_max_cps);
+                    let mode = match settings.right_game_mode.as_str() {
+                        "Combo" => GameMode::Combo,
+                        _ => GameMode::Default,
+                    };
+                    right_executor.set_game_mode(mode);
+                }
+            },
+            ClickMode::Both => {
+                if let Some(executor) = Arc::get_mut(&mut self.click_executor) {
+                    executor.set_max_cps(settings.left_max_cps);
+                    let mode = match settings.left_game_mode.as_str() {
+                        "Combo" => GameMode::Combo,
+                        _ => GameMode::Default,
+                    };
+                    executor.set_game_mode(mode);
+                }
+            }
         }
-        
+
         if let Ok(mut delay_provider) = self.click_service.delay_provider.lock() {
             if delay_provider.burst_mode != settings.burst_mode {
                 delay_provider.toggle_burst_mode();
             }
         }
-        
+
         if let Err(e) = settings.save() {
             log_error(&format!("Failed to save settings: {}", e), "Menu::apply_settings");
         }

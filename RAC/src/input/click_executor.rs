@@ -33,6 +33,8 @@ pub struct ClickExecutor {
     right_click_delay_micros: AtomicUsize,
     active: AtomicBool,
     current_button: Mutex<MouseButton>,
+    last_release_time: Mutex<Option<std::time::Instant>>,
+    was_button_pressed: AtomicBool,
 }
 
 impl ClickExecutor {
@@ -43,7 +45,7 @@ impl ClickExecutor {
             "Combo" => GameMode::Combo,
             _ => GameMode::Default,
         };
-        
+
         let right_mode = match settings.right_game_mode.as_str() {
             "Combo" => GameMode::Combo,
             _ => GameMode::Default,
@@ -59,6 +61,8 @@ impl ClickExecutor {
             right_click_delay_micros: AtomicUsize::new(settings.right_click_delay_micros as usize),
             active: AtomicBool::new(true),
             current_button: Mutex::new(MouseButton::Left),
+            last_release_time: Mutex::new(None),
+            was_button_pressed: AtomicBool::new(false),
         }
     }
 
@@ -76,7 +80,7 @@ impl ClickExecutor {
     pub fn set_left_max_cps(&self, max_cps: u8) {
         self.left_max_cps.store(max_cps, Ordering::SeqCst);
     }
-    
+
     pub fn set_right_max_cps(&self, max_cps: u8) {
         self.right_max_cps.store(max_cps, Ordering::SeqCst);
     }
@@ -93,7 +97,7 @@ impl ClickExecutor {
             *game_mode = mode;
         }
     }
-    
+
     pub fn set_right_game_mode(&self, mode: GameMode) {
         if let Ok(mut game_mode) = self.right_game_mode.lock() {
             *game_mode = mode;
@@ -106,7 +110,7 @@ impl ClickExecutor {
             MouseButton::Right => self.set_right_game_mode(mode),
         }
     }
-    
+
     pub fn get_game_mode(&self) -> GameMode {
         match *self.current_button.lock().unwrap() {
             MouseButton::Left => *self.left_game_mode.lock().unwrap(),
@@ -135,26 +139,22 @@ impl ClickExecutor {
         };
 
         let (down_msg, up_msg, flags, max_cps, game_mode, _click_delay) = match button {
-            MouseButton::Left => {
-                (
-                    WM_LBUTTONDOWN, 
-                    WM_LBUTTONUP, 
-                    MK_LBUTTON,
-                    self.left_max_cps.load(Ordering::SeqCst),
-                    *self.left_game_mode.lock().unwrap(),
-                    self.left_click_delay_micros.load(Ordering::SeqCst) as u64
-                )
-            },
-            MouseButton::Right => {
-                (
-                    WM_RBUTTONDOWN, 
-                    WM_RBUTTONUP, 
-                    MK_RBUTTON,
-                    self.right_max_cps.load(Ordering::SeqCst),
-                    *self.right_game_mode.lock().unwrap(),
-                    self.right_click_delay_micros.load(Ordering::SeqCst) as u64
-                )
-            }
+            MouseButton::Left => (
+                WM_LBUTTONDOWN,
+                WM_LBUTTONUP,
+                MK_LBUTTON,
+                self.left_max_cps.load(Ordering::SeqCst),
+                *self.left_game_mode.lock().unwrap(),
+                self.left_click_delay_micros.load(Ordering::SeqCst) as u64,
+            ),
+            MouseButton::Right => (
+                WM_RBUTTONDOWN,
+                WM_RBUTTONUP,
+                MK_RBUTTON,
+                self.right_max_cps.load(Ordering::SeqCst),
+                *self.right_game_mode.lock().unwrap(),
+                self.right_click_delay_micros.load(Ordering::SeqCst) as u64,
+            ),
         };
 
         let cps_delay = if max_cps == 0 { 1_000_000 } else { 1_000_000 / max_cps as u64 };
@@ -163,24 +163,24 @@ impl ClickExecutor {
             if let Err(_) = std::panic::catch_unwind(|| {
                 let mut rng = rand::rng();
 
+                if !self.was_button_pressed.load(Ordering::SeqCst) {
+                    self.thread_controller.smart_sleep(Duration::from_micros(cps_delay));
+                    self.was_button_pressed.store(true, Ordering::SeqCst);
+                }
+
                 PostMessageA(hwnd, down_msg, flags, 0);
 
                 let down_time = 1; // 0.25ms
+
                 self.thread_controller.smart_sleep(Duration::from_micros(down_time));
 
                 PostMessageA(hwnd, up_msg, 0, 0);
 
                 let mut adjusted_delay = cps_delay.saturating_sub(down_time);
-
                 if game_mode == GameMode::Combo {
                     #[allow(deprecated)]
                     let jitter = rng.gen_range(-500..=500);
-                    
                     adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
-
-                    if adjusted_delay < cps_delay.saturating_sub(down_time) {
-                        adjusted_delay = cps_delay.saturating_sub(down_time);
-                    }
                 }
 
                 self.thread_controller.smart_sleep(Duration::from_micros(adjusted_delay));
@@ -191,6 +191,14 @@ impl ClickExecutor {
         }
 
         true
+    }
+
+    pub fn handle_button_release(&self) {
+        if let Ok(mut last_release) = self.last_release_time.lock() {
+            *last_release = Some(std::time::Instant::now());
+        }
+
+        self.was_button_pressed.store(false, Ordering::SeqCst);
     }
 
     pub fn get_current_max_cps(&self) -> u8 {
