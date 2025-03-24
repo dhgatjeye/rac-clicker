@@ -50,7 +50,7 @@ pub struct ClickService {
     left_thread_controller: Arc<ThreadController>,
     right_thread_controller: Arc<ThreadController>,
     pub(crate) left_click_executor: Arc<ClickExecutor>,
-    pub(crate) right_click_executor: Arc<ClickExecutor>,
+    pub(crate) right_click_executor: Arc<ClickExecutor>
 }
 
 impl ClickService {
@@ -311,25 +311,29 @@ impl ClickService {
                 continue;
             }
 
-            let is_pressed = match button {
-                MouseButton::Left => {
-                    unsafe { GetAsyncKeyState(0x01) < 0 }
-                },
-                MouseButton::Right => {
-                    unsafe { GetAsyncKeyState(0x02) < 0 }
+            let settings = Settings::load().unwrap_or_default();
+            let is_keyboard_hold_mode = settings.keyboard_hold_mode;
+
+            let should_click = if is_keyboard_hold_mode {
+                click_executor.is_active()
+            } else {
+                let is_pressed = match button {
+                    MouseButton::Left => unsafe { GetAsyncKeyState(0x01) < 0 },
+                    MouseButton::Right => unsafe { GetAsyncKeyState(0x02) < 0 },
+                };
+
+                if last_button_state && !is_pressed {
+                    match button {
+                        MouseButton::Left => self.left_click_executor.handle_button_release(),
+                        MouseButton::Right => self.right_click_executor.handle_button_release(),
+                    }
                 }
+                last_button_state = is_pressed;
+
+                is_pressed && click_executor.is_active()
             };
 
-            if last_button_state && !is_pressed {
-                match button {
-                    MouseButton::Left => self.left_click_executor.handle_button_release(),
-                    MouseButton::Right => self.right_click_executor.handle_button_release(),
-                }
-            }
-
-            last_button_state = is_pressed;
-
-            if !is_pressed {
+            if !should_click {
                 continue;
             }
 
@@ -470,6 +474,7 @@ impl ClickService {
         self.left_click_executor.set_active(false);
         self.right_click_executor.set_active(false);
     }
+
 }
 
 fn spawn_click_thread(name: &str, service: Arc<ClickService>, button: MouseButton) {

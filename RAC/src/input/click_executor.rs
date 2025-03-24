@@ -212,6 +212,10 @@ impl ClickExecutor {
         self.active.store(active, Ordering::SeqCst);
     }
 
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::SeqCst)
+    }
+
     pub fn force_right_cps(&self, cps: u8) {
         self.right_max_cps.store(cps, Ordering::SeqCst);
         log_info(&format!("Right click CPS forced to: {}", cps), "ClickExecutor::force_right_cps");

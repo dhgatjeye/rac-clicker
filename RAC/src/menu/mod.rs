@@ -100,78 +100,82 @@ impl Menu {
 
         self.clear_console();
         println!("=== Toggle Mode Configuration ===");
-        println!("Select how you want to activate clicking:");
-        println!("1. Mouse Hold Mode (Default) - Press toggle key to enable, then HOLD LEFT MOUSE BUTTON to click");
-        println!("2. Keyboard Hold Mode - HOLD TOGGLE KEY to click");
+        println!("\nCurrent Mode: {}", if self.settings.keyboard_hold_mode { "Keyboard Hold Mode" } else { "Mouse Hold Mode" });
+        println!("\n1. Mouse Hold Mode");
+        println!("2. Keyboard Hold Mode");
         println!("3. Back to Main Menu");
-        print!("\nSelect option: ");
+        println!("\nSelect an option (1-3): ");
 
         if let Err(e) = io::stdout().flush() {
             log_error(&format!("Failed to flush stdout: {}", e), context);
             return;
         }
 
-        let mut choice = String::new();
-        if let Err(e) = io::stdin().read_line(&mut choice) {
-            log_error(&format!("Failed to read user input: {}", e), context);
+        let mut input = String::new();
+        if let Err(e) = io::stdin().read_line(&mut input) {
+            log_error(&format!("Failed to read input: {}", e), context);
             return;
         }
 
-        match choice.trim() {
+        match input.trim() {
             "1" => {
-                self.toggle_mode = ToggleMode::MouseHold;
-                let settings = match Settings::load() {
-                    Ok(mut s) => {
-                        s.keyboard_hold_mode = false;
-                        s
-                    },
-                    Err(_) => {
-                        let mut s = Settings::default();
-                        s.keyboard_hold_mode = false;
-                        s
-                    }
-                };
-
-                if let Err(e) = settings.save() {
-                    log_error(&format!("Failed to save settings: {}", e), context);
-                    println!("Failed to save settings! Press Enter to continue...");
-                } else {
-                    println!("Mouse Hold Mode enabled! Press Enter to continue...");
-                }
-                let mut _input = String::new();
-                let _ = io::stdin().read_line(&mut _input);
+                self.settings.keyboard_hold_mode = false;
+                log_info("Toggle mode set to Mouse Hold Mode", context);
+                println!("\nToggle mode set to Mouse Hold Mode.");
             },
             "2" => {
-                self.toggle_mode = ToggleMode::KeyboardHold;
-                let settings = match Settings::load() {
-                    Ok(mut s) => {
-                        s.keyboard_hold_mode = true;
-                        s
-                    },
-                    Err(_) => {
-                        let mut s = Settings::default();
-                        s.keyboard_hold_mode = true;
-                        s
-                    }
-                };
-
-                if let Err(e) = settings.save() {
-                    log_error(&format!("Failed to save settings: {}", e), context);
-                    println!("Failed to save settings! Press Enter to continue...");
-                } else {
-                    println!("Keyboard Hold Mode enabled! Press Enter to continue...");
+                let current_settings = Settings::load().unwrap_or_else(|_| self.settings.clone());
+                if current_settings.click_mode == "Both" {
+                    log_error("Keyboard Hold Mode cannot be used with Click Mode set to 'Both'", context);
+                    println!("\nError: Keyboard Hold Mode cannot be used when Click Mode is set to 'Both'.");
+                    println!("Please configure Click Mode (Menu Option 6) to either 'LeftClick' or 'RightClick' first.");
+                    println!("Press Enter to continue...");
+                    let mut _input = String::new();
+                    let _ = io::stdin().read_line(&mut _input);
+                    return;
                 }
-                let mut _input = String::new();
-                let _ = io::stdin().read_line(&mut _input);
+                self.settings.keyboard_hold_mode = true;
+                log_info("Toggle mode set to Keyboard Hold Mode", context);
+                println!("\nToggle mode set to Keyboard Hold Mode.");
             },
-            "3" => return,
+            "3" => {
+                println!("\nReturning to main menu...");
+                thread::sleep(Duration::from_secs(1));
+                return;
+            },
             _ => {
-                log_error("Invalid toggle mode option selected", context);
-                println!("\nInvalid option! Press Enter to continue...");
-                let mut _input = String::new();
-                let _ = io::stdin().read_line(&mut _input);
+                log_error(&format!("Invalid option selected: {}", input.trim()), context);
+                println!("\nInvalid option! Please select 1, 2, or 3.");
+                thread::sleep(Duration::from_secs(2));
+                return;
             }
         }
+
+        let settings = match Settings::load() {
+            Ok(mut s) => {
+                s.keyboard_hold_mode = self.settings.keyboard_hold_mode;
+                s
+            },
+            Err(_) => {
+                Settings {
+                    toggle_key: self.toggle_key,
+                    keyboard_hold_mode: self.settings.keyboard_hold_mode,
+                    ..Settings::default()
+                }
+            }
+        };
+
+        if let Err(e) = settings.save() {
+            log_error(&format!("Failed to save settings: {}", e), context);
+            println!("\nFailed to save settings: {}", e);
+        } else {
+            log_info(&format!("Settings saved with toggle_key: 0x{:02X}, keyboard_hold_mode: {}", settings.toggle_key, settings.keyboard_hold_mode), context);
+            println!("\nSettings saved successfully.");
+        }
+
+        println!("Press Enter to continue...");
+        let mut _input = String::new();
+        let _ = io::stdin().read_line(&mut _input);
     }
 
     fn configure_click_mode(&mut self) {
@@ -407,8 +411,10 @@ impl Menu {
 
                             if let Err(e) = settings.save() {
                                 log_error(&format!("Failed to save settings: {}", e), context);
+                                println!("\nFailed to save settings: {}", e);
                             } else {
                                 println!("\nHotkey successfully set to: {}", Self::get_key_name(virtual_key));
+                                log_info(&format!("Keyboard hotkey set to: 0x{:02X}", virtual_key), context);
                                 println!("To change the hotkey, return to the main menu and configure again.");
                             }
                             input_received = true;
@@ -459,9 +465,10 @@ impl Menu {
         'detection: while mouse_key == 0 && start_time.elapsed() < timeout {
             for &key in &button_codes {
                 unsafe {
-                    let state = GetAsyncKeyState(key);
-                    if (state as u16 & 0x8000) != 0 {
+                    let state = GetAsyncKeyState(key) as i32;
+                    if (state & 0x8000) != 0 {
                         mouse_key = key;
+                        log_info(&format!("Mouse key detected: 0x{:02X}", mouse_key), context);
                         thread::sleep(Duration::from_millis(100));
                         break 'detection;
                     }
@@ -489,9 +496,11 @@ impl Menu {
 
         if let Err(e) = settings.save() {
             log_error(&format!("Failed to save settings: {}", e), context);
+            println!("\nFailed to save settings: {}", e);
         } else {
             println!("\nHotkey successfully set to: {} (code: 0x{:02X})",
                      Self::get_key_name(mouse_key), mouse_key);
+            log_info(&format!("Mouse hotkey set to: 0x{:02X}", mouse_key), context);
             println!("To change the hotkey, return to the main menu and configure again.");
             println!("\nPress Enter to continue...");
 
@@ -803,7 +812,7 @@ impl Menu {
                         }
                     }
 
-                    if let Err(e) = self.settings.save() {
+                    if let Err(_) = self.settings.save() {
                     } else { }
 
                     let mut _input = String::new();
@@ -1302,7 +1311,6 @@ impl Menu {
             IS_ACTIVE = !IS_ACTIVE;
             
             if IS_ACTIVE {
-                log_info("AutoClicker Enabled", "Menu::toggle_service");
                 self.click_executor.set_active(true);
                 
                 if self.click_mode == ClickMode::Both || self.click_mode == ClickMode::RightClick {
@@ -1313,7 +1321,6 @@ impl Menu {
                     self.click_service.get_left_click_executor().set_active(true);
                 }
             } else {
-                log_info("AutoClicker Disabled", "Menu::toggle_service");
                 self.click_executor.set_active(false);
                 self.click_service.get_left_click_executor().set_active(false);
                 self.click_service.get_right_click_executor().set_active(false);
@@ -1322,16 +1329,15 @@ impl Menu {
     }
 
     fn start_toggle_monitor(&self) {
-        let toggle_key = self.toggle_key;
         let left_executor = Arc::clone(&self.click_service.get_left_click_executor());
         let right_executor = Arc::clone(&self.click_service.get_right_click_executor());
 
         thread::spawn(move || {
             let mut was_pressed = false;
-            let mut is_active = false;
 
             loop {
                 let settings = Settings::load().unwrap_or_default();
+                let toggle_key = settings.toggle_key;
                 let click_mode = match settings.click_mode.as_str() {
                     "LeftClick" => ClickMode::LeftClick,
                     "RightClick" => ClickMode::RightClick,
@@ -1350,80 +1356,44 @@ impl Menu {
                 match toggle_mode {
                     ToggleMode::MouseHold => {
                         if is_pressed && !was_pressed {
-                            is_active = !is_active;
-
+                            let is_active = !left_executor.is_active();
                             match click_mode {
                                 ClickMode::LeftClick => {
-                                    if is_active {
-                                        left_executor.set_active(true);
-                                        left_executor.set_mouse_button(MouseButton::Left);
-                                        right_executor.set_active(false);
-                                    } else {
-                                        left_executor.set_active(false);
-                                        right_executor.set_active(false);
-                                    }
+                                    left_executor.set_active(is_active);
+                                    left_executor.set_mouse_button(MouseButton::Left);
+                                    right_executor.set_active(false);
                                 },
                                 ClickMode::RightClick => {
-                                    if is_active {
-                                        right_executor.set_active(true);
-                                        right_executor.set_mouse_button(MouseButton::Right);
-                                        left_executor.set_active(false);
-                                    } else {
-                                        left_executor.set_active(false);
-                                        right_executor.set_active(false);
-                                    }
+                                    right_executor.set_active(is_active);
+                                    right_executor.set_mouse_button(MouseButton::Right);
+                                    left_executor.set_active(false);
                                 },
                                 ClickMode::Both => {
-                                    if is_active {
-                                        left_executor.set_active(true);
-                                        left_executor.set_mouse_button(MouseButton::Left);
-                                        right_executor.set_active(true);
-                                        right_executor.set_mouse_button(MouseButton::Right);
-                                    } else {
-                                        left_executor.set_active(false);
-                                        right_executor.set_active(false);
-                                    }
+                                    left_executor.set_active(is_active);
+                                    left_executor.set_mouse_button(MouseButton::Left);
+                                    right_executor.set_active(is_active);
+                                    right_executor.set_mouse_button(MouseButton::Right);
                                 }
                             }
                         }
                     },
                     ToggleMode::KeyboardHold => {
-                        if is_pressed != is_active {
-                            is_active = is_pressed;
-
-                            match click_mode {
-                                ClickMode::LeftClick => {
-                                    if is_active {
-                                        left_executor.set_active(true);
-                                        left_executor.set_mouse_button(MouseButton::Left);
-                                        right_executor.set_active(false);
-                                    } else {
-                                        left_executor.set_active(false);
-                                        right_executor.set_active(false);
-                                    }
-                                },
-                                ClickMode::RightClick => {
-                                    if is_active {
-
-                                        right_executor.set_active(true);
-                                        right_executor.set_mouse_button(MouseButton::Right);
-                                        left_executor.set_active(false);
-                                    } else {
-                                        left_executor.set_active(false);
-                                        right_executor.set_active(false);
-                                    }
-                                },
-                                ClickMode::Both => {
-                                    if is_active {
-                                        left_executor.set_active(true);
-                                        left_executor.set_mouse_button(MouseButton::Left);
-                                        right_executor.set_active(true);
-                                        right_executor.set_mouse_button(MouseButton::Right);
-                                    } else {
-                                        left_executor.set_active(false);
-                                        right_executor.set_active(false);
-                                    }
-                                }
+                        match click_mode {
+                            ClickMode::LeftClick => {
+                                left_executor.set_active(is_pressed);
+                                left_executor.set_mouse_button(MouseButton::Left);
+                                right_executor.set_active(false);
+                            },
+                            ClickMode::RightClick => {
+                                right_executor.set_active(is_pressed);
+                                right_executor.set_mouse_button(MouseButton::Right);
+                                left_executor.set_active(false);
+                            },
+                            ClickMode::Both => {
+                                left_executor.set_active(is_pressed);
+                                left_executor.set_mouse_button(MouseButton::Left);
+                                right_executor.set_active(is_pressed);
+                                right_executor.set_mouse_button(MouseButton::Right);
                             }
                         }
                     }
