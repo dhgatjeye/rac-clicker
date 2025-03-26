@@ -131,10 +131,10 @@ impl ClickService {
         }
 
         let service_clone = service.clone();
-        spawn_click_thread("LeftClickThread", service_clone.clone(), MouseButton::Left);
+        Self::spawn_click_thread("LeftClickThread", service_clone.clone(), MouseButton::Left);
 
         let service_clone = service.clone();
-        spawn_click_thread("RightClickThread", service_clone.clone(), MouseButton::Right);
+        Self::spawn_click_thread("RightClickThread", service_clone.clone(), MouseButton::Right);
 
         service
     }
@@ -216,18 +216,14 @@ impl ClickService {
                 }
 
                 if target_process_changed {
-                    log_info(&format!("Target process updated to: {}", target_process_new), context);
                     let _ = self.window_finder.update_target_process(&target_process_new);
                 }
 
                 if adaptive_cpu_mode_changed {
-                    log_info(&format!("Adaptive CPU mode updated to: {}", if adaptive_cpu_mode { "disabled" } else { "enabled" }), context);
                     self.left_thread_controller.set_adaptive_mode(!adaptive_cpu_mode);
                 }
 
                 if click_delay_changed || delay_range_changed || deviation_changed {
-                    log_info("Click timing parameters updated", context);
-
                     if delay_range_changed || deviation_changed {
                         if let Ok(mut delay_provider) = self.delay_provider.lock() {
                             delay_provider.update_settings(
@@ -255,8 +251,6 @@ impl ClickService {
             MouseButton::Left => "ClickService::left_click_loop",
             MouseButton::Right => "ClickService::right_click_loop",
         };
-
-        log_info(&format!("{} thread started", context), context);
 
         let click_controller = match button {
             MouseButton::Left => Arc::clone(&self.left_click_controller),
@@ -359,7 +353,6 @@ impl ClickService {
                 consecutive_failures += 1;
 
                 if consecutive_failures >= 3 {
-                    log_info("Multiple click failures detected, continuing with next cycle", &context);
                     consecutive_failures = 0;
                 }
 
@@ -384,7 +377,6 @@ impl ClickService {
             return true;
         }
 
-        log_info("Forcing click service to enable state", "ClickService::force_enable_clicking");
         self.sync_controller.force_enable()
     }
 
@@ -392,8 +384,6 @@ impl ClickService {
         if !self.is_enabled() {
             return true;
         }
-
-        log_info("Forcing click service to disable state", "ClickService::force_disable_clicking");
 
         if self.sync_controller.is_enabled() {
             self.sync_controller.toggle();
@@ -406,7 +396,6 @@ impl ClickService {
         if self.left_click_controller.is_enabled() {
             return true;
         }
-        log_info("Forcing left click to enable state", "ClickService::force_enable_left_clicking");
         self.left_click_controller.force_enable()
     }
 
@@ -414,7 +403,6 @@ impl ClickService {
         if self.right_click_controller.is_enabled() {
             return true;
         }
-        log_info("Forcing right click to enable state", "ClickService::force_enable_right_clicking");
         self.right_click_controller.force_enable()
     }
 
@@ -422,7 +410,6 @@ impl ClickService {
         if !self.left_click_controller.is_enabled() {
             return true;
         }
-        log_info("Forcing left click to disable state", "ClickService::force_disable_left_clicking");
         self.left_click_controller.toggle()
     }
 
@@ -430,7 +417,6 @@ impl ClickService {
         if !self.right_click_controller.is_enabled() {
             return true;
         }
-        log_info("Forcing right click to disable state", "ClickService::force_disable_right_clicking");
         self.right_click_controller.toggle()
     }
 
@@ -451,45 +437,29 @@ impl ClickService {
     }
 
     pub fn start(&self) {
-        let context = "ClickService::start";
-        log_info("Starting click service", context);
-
         self.left_click_executor.set_active(true);
         self.right_click_executor.set_active(true);
-
-        log_info(
-            &format!(
-                "Click service started with LEFT CPS={}, RIGHT CPS={}",
-                self.left_click_executor.get_current_max_cps(),
-                self.right_click_executor.get_current_max_cps()
-            ),
-            context
-        );
     }
 
     pub fn stop(&self) {
-        let context = "ClickService::stop";
-        log_info("Stopping click service", context);
-
         self.left_click_executor.set_active(false);
         self.right_click_executor.set_active(false);
     }
 
-}
+    fn spawn_click_thread(name: &str, service: Arc<ClickService>, button: MouseButton) {
+        let context = format!("ClickService::{}", name);
 
-fn spawn_click_thread(name: &str, service: Arc<ClickService>, button: MouseButton) {
-    let context = format!("ClickService::{}", name);
-
-    match thread::Builder::new()
-        .name(name.to_string())
-        .spawn(move || {
-            service.click_loop(button);
-        }) {
-        Ok(_) => {
-            log_info(&format!("{} spawned successfully", name), &context);
-        }
-        Err(e) => {
-            log_error(&format!("Failed to spawn {}: {}", name, e), &context);
+        match thread::Builder::new()
+            .name(name.to_string())
+            .spawn(move || {
+                service.click_loop(button);
+            }) {
+            Ok(_) => {
+                log_info(&format!("{} spawned successfully", name), &context);
+            }
+            Err(e) => {
+                log_error(&format!("Failed to spawn {}: {}", name, e), &context);
+            }
         }
     }
 }

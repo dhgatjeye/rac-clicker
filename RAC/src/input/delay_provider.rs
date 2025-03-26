@@ -73,8 +73,6 @@ impl DelayProvider {
 
         if let Err(e) = self.initialize_delay_buffer() {
             log_error(&format!("Failed to reinitialize delay buffer: {}", e), context);
-        } else {
-            log_info("Delay buffer reinitialized with new settings", context);
         }
     }
 

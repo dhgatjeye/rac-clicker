@@ -145,7 +145,6 @@ impl Settings {
                     Ok(json) => {
                         match serde_json::from_str(&json) {
                             Ok(settings) => {
-                                log_info("Settings loaded successfully", context);
                                 Ok(settings)
                             }
                             Err(e) => {
