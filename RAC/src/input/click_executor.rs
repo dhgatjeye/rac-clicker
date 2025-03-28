@@ -179,7 +179,7 @@ impl ClickExecutor {
                 let mut adjusted_delay = cps_delay.saturating_sub(down_time);
                 if game_mode == GameMode::Combo {
                     #[allow(deprecated)]
-                    let jitter = rng.gen_range(-3000..=3000);
+                    let jitter = rng.gen_range(-500..=500);
                     adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
                 }
 

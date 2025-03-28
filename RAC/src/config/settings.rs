@@ -115,7 +115,6 @@ impl Settings {
                             log_error(&format!("Failed to write settings file: {}", e), context);
                             return Err(e);
                         }
-                        log_info("Settings saved successfully", context);
                         Ok(())
                     }
                     Err(e) => {
@@ -137,7 +136,6 @@ impl Settings {
             Ok(settings_path) => {
                 if !settings_path.exists() {
                     let default_settings = Settings::default();
-                    log_info("Created default settings", context);
                     return Ok(default_settings);
                 }
 

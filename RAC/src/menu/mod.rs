@@ -394,36 +394,26 @@ impl Menu {
         let mut input_received = false;
 
         while start_time.elapsed() < timeout && !input_received {
-            if event::poll(Duration::from_millis(100)).unwrap_or(false) {
-                if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
-                    if let KeyCode::Char(c) = code {
-                        if c.is_ascii_alphabetic() {
-                            let virtual_key = c.to_ascii_uppercase() as i32;
+            if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
+                if let KeyCode::Char(c) = code {
+                    if c.is_ascii_alphabetic() {
+                        let virtual_key = c.to_ascii_uppercase() as i32;
 
-                            self.toggle_key = virtual_key;
-                            let settings = match Settings::load() {
-                                Ok(mut s) => {
-                                    s.toggle_key = self.toggle_key;
-                                    s
-                                },
-                                Err(_) => Settings::default_with_toggle_key(self.toggle_key),
-                            };
+                        self.toggle_key = virtual_key;
+                        self.settings.toggle_key = self.toggle_key;
 
-                            if let Err(e) = settings.save() {
-                                log_error(&format!("Failed to save settings: {}", e), context);
-                                println!("\nFailed to save settings: {}", e);
-                            } else {
-                                println!("\nHotkey successfully set to: {}", Self::get_key_name(virtual_key));
-                                log_info(&format!("Keyboard hotkey set to: 0x{:02X}", virtual_key), context);
-                                println!("To change the hotkey, return to the main menu and configure again.");
-                            }
-                            input_received = true;
+                        if let Err(e) = self.settings.save() {
+                            log_error(&format!("Failed to save settings: {}", e), context);
+                            println!("\nFailed to save settings: {}", e);
                         } else {
-                            println!("\nInvalid key! Please press a letter key (A-Z)...");
-                            thread::sleep(Duration::from_secs(2));
-                            disable_raw_mode().unwrap_or(());
-                            return;
+                            println!("\nHotkey successfully set to: {}", Self::get_key_name(virtual_key));
+                            log_info(&format!("Keyboard hotkey set to: 0x{:02X}", virtual_key), context);
+                            println!("To change the hotkey, return to the main menu and configure again.");
                         }
+                        input_received = true;
+                    } else {
+                        println!("\nInvalid key! Please press a letter key (A-Z)...");
+                        thread::sleep(Duration::from_secs(2));
                     }
                 }
             }
@@ -486,15 +476,9 @@ impl Menu {
         }
 
         self.toggle_key = mouse_key;
-        let settings = match Settings::load() {
-            Ok(mut s) => {
-                s.toggle_key = self.toggle_key;
-                s
-            },
-            Err(_) => Settings::default_with_toggle_key(self.toggle_key),
-        };
+        self.settings.toggle_key = self.toggle_key;
 
-        if let Err(e) = settings.save() {
+        if let Err(e) = self.settings.save() {
             log_error(&format!("Failed to save settings: {}", e), context);
             println!("\nFailed to save settings: {}", e);
         } else {
@@ -737,7 +721,7 @@ impl Menu {
                         log_error(&format!("Failed to read input: {}", e), context);
                         continue;
                     }
-                    
+
                     let input = input.trim();
                     if !input.is_empty() {
                         self.settings.target_process = input.to_string();
@@ -780,72 +764,47 @@ impl Menu {
                 "5" => {
                     println!("Saving all settings...");
 
-                    if let Ok(mut saved_settings) = Settings::load() {
-                        saved_settings.toggle_key = self.toggle_key;
-                        saved_settings.target_process = self.settings.target_process.clone();
-                        saved_settings.adaptive_cpu_mode = self.settings.adaptive_cpu_mode;
-                        saved_settings.keyboard_hold_mode = self.settings.keyboard_hold_mode;
+                    self.settings.click_mode = match self.click_mode {
+                        ClickMode::LeftClick => "LeftClick".to_string(),
+                        ClickMode::RightClick => "RightClick".to_string(),
+                        ClickMode::Both => "Both".to_string(),
+                    };
 
-                        saved_settings.click_mode = match self.click_mode {
-                            ClickMode::LeftClick => "LeftClick".to_string(),
-                            ClickMode::RightClick => "RightClick".to_string(),
-                            ClickMode::Both => "Both".to_string(),
-                        };
+                    match self.click_mode {
+                        ClickMode::LeftClick => {
+                            let left_executor = self.click_service.get_left_click_executor();
+                            left_executor.set_mouse_button(MouseButton::Left);
+                            left_executor.set_max_cps(self.settings.left_max_cps);
+                            let left_mode = if self.settings.left_game_mode == "Combo" { GameMode::Combo } else { GameMode::Default };
+                            left_executor.set_game_mode(left_mode);
+                        },
+                        ClickMode::RightClick => {
+                            let right_executor = self.click_service.get_right_click_executor();
+                            right_executor.set_mouse_button(MouseButton::Right);
+                            right_executor.set_max_cps(self.settings.right_max_cps);
+                            let right_mode = if self.settings.right_game_mode == "Combo" { GameMode::Combo } else { GameMode::Default };
+                            right_executor.set_game_mode(right_mode);
+                        },
+                        ClickMode::Both => {
+                            let left_executor = self.click_service.get_left_click_executor();
+                            left_executor.set_mouse_button(MouseButton::Left);
+                            left_executor.set_max_cps(self.settings.left_max_cps);
 
-                        saved_settings.left_max_cps = self.settings.left_max_cps;
-                        saved_settings.left_game_mode = self.settings.left_game_mode.clone();
-                        saved_settings.left_click_delay_micros = self.settings.left_click_delay_micros;
-                        saved_settings.left_random_deviation_min = self.settings.left_random_deviation_min;
-                        saved_settings.left_random_deviation_max = self.settings.left_random_deviation_max;
-
-                        saved_settings.right_max_cps = self.settings.right_max_cps;
-                        saved_settings.right_game_mode = self.settings.right_game_mode.clone();
-                        saved_settings.right_click_delay_micros = self.settings.right_click_delay_micros;
-                        saved_settings.right_random_deviation_min = self.settings.right_random_deviation_min;
-                        saved_settings.right_random_deviation_max = self.settings.right_random_deviation_max;
-
-                        match self.click_mode {
-                            ClickMode::LeftClick => {
-                                let left_executor = self.click_service.get_left_click_executor();
-                                left_executor.set_mouse_button(MouseButton::Left);
-                                left_executor.set_max_cps(saved_settings.left_max_cps);
-                                let left_mode = if saved_settings.left_game_mode == "Combo" { GameMode::Combo } else { GameMode::Default };
-                                left_executor.set_game_mode(left_mode);
-                            },
-                            ClickMode::RightClick => {
-                                let right_executor = self.click_service.get_right_click_executor();
-                                right_executor.set_mouse_button(MouseButton::Right);
-                                right_executor.set_max_cps(saved_settings.right_max_cps);
-                                let right_mode = if saved_settings.right_game_mode == "Combo" { GameMode::Combo } else { GameMode::Default };
-                                right_executor.set_game_mode(right_mode);
-                            },
-                            ClickMode::Both => {
-                                let left_executor = self.click_service.get_left_click_executor();
-                                left_executor.set_mouse_button(MouseButton::Left);
-                                left_executor.set_max_cps(saved_settings.left_max_cps);
-
-                                let right_executor = self.click_service.get_right_click_executor();
-                                right_executor.set_mouse_button(MouseButton::Right);
-                                right_executor.set_max_cps(saved_settings.right_max_cps);
-                            }
-                        }
-
-                        if let Err(e) = saved_settings.save() {
-                            log_error(&format!("Failed to save settings: {}", e), context);
-                            println!("Failed to save settings! Press Enter to continue...");
-                        } else {
-                            self.settings = saved_settings;
-                            println!("Settings saved successfully! Press Enter to continue...");
-                        }
-                    } else {
-                        if let Err(e) = self.settings.save() {
-                            log_error(&format!("Failed to save settings: {}", e), context);
-                            println!("Failed to save settings! Press Enter to continue...");
-                        } else {
-                            println!("Settings saved successfully! Press Enter to continue...");
+                            let right_executor = self.click_service.get_right_click_executor();
+                            right_executor.set_mouse_button(MouseButton::Right);
+                            right_executor.set_max_cps(self.settings.right_max_cps);
                         }
                     }
 
+                    if let Err(e) = self.settings.save() {
+                        log_error(&format!("Failed to save settings: {}", e), context);
+                        println!("\nFailed to save settings: {}", e);
+                    } else {
+                        log_info("Settings saved successfully from advanced menu", context);
+                        println!("\nSettings saved successfully.");
+                    }
+
+                    println!("Press Enter to return to the main menu...");
                     let mut _input = String::new();
                     let _ = io::stdin().read_line(&mut _input);
                     return;
