@@ -1,3 +1,4 @@
+use crate::config::constants::defaults;
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use base64::{engine::general_purpose, Engine as _};
@@ -40,7 +41,7 @@ impl LicenseValidator {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let machine_id = Self::get_machine_id()?;
         let local_appdata = env::var("LOCALAPPDATA")?;
-        let license_dir = PathBuf::from(local_appdata).join("RAC");
+        let license_dir = PathBuf::from(local_appdata).join(defaults::RAC_DIR);
 
         if !license_dir.exists() {
             fs::create_dir_all(&license_dir)?;

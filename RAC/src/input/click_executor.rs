@@ -1,36 +1,34 @@
-use crate::input::thread_controller::ThreadController;
 use crate::config::settings::Settings;
-use crate::logger::logger::{log_error, log_info};
+use crate::input::thread_controller::ThreadController;
+use crate::logger::logger::log_error;
 use rand::Rng;
-use std::time::Duration;
-use std::sync::atomic::{AtomicU8, AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use winapi::um::winuser::{MK_LBUTTON, MK_RBUTTON};
 use winapi::{
     shared::windef::HWND,
     um::winuser::{PostMessageA, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP},
 };
-use winapi::um::winuser::{MK_LBUTTON, MK_RBUTTON};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MouseButton {
     Left,
-    Right
+    Right,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GameMode {
     Combo,
-    Default
+    Default,
 }
 
 pub struct ClickExecutor {
-    thread_controller: ThreadController,
+    pub(crate) thread_controller: ThreadController,
     left_game_mode: Arc<Mutex<GameMode>>,
     right_game_mode: Arc<Mutex<GameMode>>,
     left_max_cps: AtomicU8,
     right_max_cps: AtomicU8,
-    left_click_delay_micros: AtomicUsize,
-    right_click_delay_micros: AtomicUsize,
     active: AtomicBool,
     current_button: Mutex<MouseButton>,
     last_release_time: Mutex<Option<std::time::Instant>>,
@@ -57,23 +55,10 @@ impl ClickExecutor {
             right_game_mode: Arc::new(Mutex::new(right_mode)),
             left_max_cps: AtomicU8::new(settings.left_max_cps),
             right_max_cps: AtomicU8::new(settings.right_max_cps),
-            left_click_delay_micros: AtomicUsize::new(settings.left_click_delay_micros as usize),
-            right_click_delay_micros: AtomicUsize::new(settings.right_click_delay_micros as usize),
             active: AtomicBool::new(true),
             current_button: Mutex::new(MouseButton::Left),
             last_release_time: Mutex::new(None),
             was_button_pressed: AtomicBool::new(false),
-        }
-    }
-
-    pub fn update_delay(&self, click_delay_micros: u64) {
-        match *self.current_button.lock().unwrap() {
-            MouseButton::Left => {
-                self.left_click_delay_micros.store(click_delay_micros as usize, Ordering::SeqCst);
-            },
-            MouseButton::Right => {
-                self.right_click_delay_micros.store(click_delay_micros as usize, Ordering::SeqCst);
-            }
         }
     }
 
@@ -138,14 +123,13 @@ impl ClickExecutor {
             }
         };
 
-        let (down_msg, up_msg, flags, max_cps, game_mode, _click_delay) = match button {
+        let (down_msg, up_msg, flags, max_cps, game_mode) = match button {
             MouseButton::Left => (
                 WM_LBUTTONDOWN,
                 WM_LBUTTONUP,
                 MK_LBUTTON,
                 self.left_max_cps.load(Ordering::SeqCst),
                 *self.left_game_mode.lock().unwrap(),
-                self.left_click_delay_micros.load(Ordering::SeqCst) as u64,
             ),
             MouseButton::Right => (
                 WM_RBUTTONDOWN,
@@ -153,7 +137,6 @@ impl ClickExecutor {
                 MK_RBUTTON,
                 self.right_max_cps.load(Ordering::SeqCst),
                 *self.right_game_mode.lock().unwrap(),
-                self.right_click_delay_micros.load(Ordering::SeqCst) as u64,
             ),
         };
 
@@ -169,14 +152,9 @@ impl ClickExecutor {
                 }
 
                 PostMessageA(hwnd, down_msg, flags, 0);
-
-                let down_time = 1; // 0.25ms
-
-                self.thread_controller.smart_sleep(Duration::from_micros(down_time));
-
                 PostMessageA(hwnd, up_msg, 0, 0);
 
-                let mut adjusted_delay = cps_delay.saturating_sub(down_time);
+                let mut adjusted_delay = cps_delay.saturating_sub(1);
                 if game_mode == GameMode::Combo {
                     #[allow(deprecated)]
                     let jitter = rng.gen_range(-500..=500);
@@ -218,6 +196,5 @@ impl ClickExecutor {
 
     pub fn force_right_cps(&self, cps: u8) {
         self.right_max_cps.store(cps, Ordering::SeqCst);
-        log_info(&format!("Right click CPS forced to: {}", cps), "ClickExecutor::force_right_cps");
     }
 }

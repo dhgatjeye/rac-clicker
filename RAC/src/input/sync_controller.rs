@@ -32,14 +32,14 @@ impl SyncController {
         if self.enabled.load(Ordering::SeqCst) {
             return true;
         }
-        
+
         self.enabled.store(true, Ordering::SeqCst);
-        
+
         let mut enabled = self.mutex.lock().unwrap();
         *enabled = true;
-        
+
         self.condvar.notify_all();
-        
+
         true
     }
 
@@ -49,22 +49,22 @@ impl SyncController {
 
     pub fn wait_for_signal(&self, timeout: Duration) -> bool {
         let mut enabled = self.mutex.lock().unwrap();
-        
+
         let atomic_enabled = self.enabled.load(Ordering::SeqCst);
-        
+
         if *enabled != atomic_enabled {
             *enabled = atomic_enabled;
         }
-        
+
         if !*enabled {
             let result = self.condvar.wait_timeout(enabled, timeout).unwrap();
             enabled = result.0;
-            
+
             if !*enabled && self.enabled.load(Ordering::SeqCst) {
                 *enabled = true;
             }
         }
-        
+
         *enabled
     }
 }

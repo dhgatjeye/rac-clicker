@@ -1,15 +1,11 @@
-use crate::logger::logger::{log_error, log_info};
 use crate::config::settings::Settings;
+use crate::logger::logger::{log_error, log_info};
 use rand::Rng;
 use std::time::Duration;
 
 pub struct DelayProvider {
     delay_buffer: Vec<Duration>,
     current_index: usize,
-    delay_range_min: f64,
-    delay_range_max: f64,
-    random_deviation_min: i32,
-    random_deviation_max: i32,
     pub(crate) burst_mode: bool,
     burst_counter: u8,
 }
@@ -23,10 +19,6 @@ impl DelayProvider {
         let mut provider = Self {
             delay_buffer: vec![Duration::ZERO; 512],
             current_index: 0,
-            delay_range_min: settings.delay_range_min,
-            delay_range_max: settings.delay_range_max,
-            random_deviation_min: settings.random_deviation_min,
-            random_deviation_max: settings.random_deviation_max,
             burst_mode: settings.burst_mode,
             burst_counter: 0,
         };
@@ -47,33 +39,6 @@ impl DelayProvider {
         self.burst_mode = !self.burst_mode;
         self.burst_counter = 0;
         self.burst_mode
-    }
-
-    pub fn update_settings(&mut self,
-                           delay_range_min: f64,
-                           delay_range_max: f64,
-                           random_deviation_min: i32,
-                           random_deviation_max: i32) {
-        let context = "DelayProvider::update_settings";
-
-        let settings_changed =
-            self.delay_range_min != delay_range_min ||
-                self.delay_range_max != delay_range_max ||
-                self.random_deviation_min != random_deviation_min ||
-                self.random_deviation_max != random_deviation_max;
-
-        if !settings_changed {
-            return;
-        }
-
-        self.delay_range_min = delay_range_min;
-        self.delay_range_max = delay_range_max;
-        self.random_deviation_min = random_deviation_min;
-        self.random_deviation_max = random_deviation_max;
-
-        if let Err(e) = self.initialize_delay_buffer() {
-            log_error(&format!("Failed to reinitialize delay buffer: {}", e), context);
-        }
     }
 
     fn initialize_delay_buffer(&mut self) -> Result<(), String> {
@@ -105,10 +70,6 @@ impl DelayProvider {
         } else {
             base_delay.saturating_add(Duration::from_micros(micro_adjust as u64))
         };
-
-        if final_delay < Duration::from_micros(200) {
-            return Duration::from_micros(200);
-        }
 
         final_delay
     }

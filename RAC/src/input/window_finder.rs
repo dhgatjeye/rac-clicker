@@ -47,10 +47,6 @@ impl WindowFinder {
         }
     }
 
-    pub fn set_require_visibility(&mut self, require: bool) {
-        self.require_visibility = require;
-    }
-
     pub fn update_target_process(&self, new_target_process: &str) -> bool {
         if self.target_process == new_target_process {
             return false;

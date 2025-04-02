@@ -1,9 +1,9 @@
 use crate::logger::logger::log_error;
+use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 use windows::Win32::System::Threading::{GetCurrentThread, SetThreadPriority};
 use windows::Win32::System::Threading::{THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_TIME_CRITICAL};
-use std::time::Instant;
-use std::thread;
 
 pub struct ThreadController {
     adaptive_mode: bool,

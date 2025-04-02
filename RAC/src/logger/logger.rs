@@ -1,3 +1,4 @@
+use crate::config::constants::defaults;
 use chrono::Utc;
 use lazy_static::lazy_static;
 use std::fs::{self, OpenOptions};
@@ -9,7 +10,7 @@ use std::sync::Mutex;
 pub enum LogLevel {
     Info,
     Warning,
-    Error
+    Error,
 }
 
 impl LogLevel {
@@ -34,8 +35,8 @@ impl Logger {
     fn new() -> Self {
         let log_path = dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("RAC")
-            .join("logs.txt");
+            .join(defaults::RAC_DIR)
+            .join(defaults::RAC_LOG_PATH);
 
         if let Some(parent) = log_path.parent() {
             fs::create_dir_all(parent).unwrap_or_else(|e| {

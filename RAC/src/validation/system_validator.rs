@@ -1,7 +1,12 @@
+use crate::config::constants::defaults;
 use crate::logger::logger::{log_error, log_info};
 use crate::validation::validation_result::ValidationResult;
 use std::path::PathBuf;
+use sysinfo;
+use sysinfo::System;
 use windows::Win32::Foundation::POINT;
+use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+use windows::Win32::UI::Input::KeyboardAndMouse::{mouse_event, MOUSEEVENTF_MOVE};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 pub struct SystemRequirements {
@@ -12,8 +17,8 @@ pub struct SystemRequirements {
 impl Default for SystemRequirements {
     fn default() -> Self {
         let context = "SystemRequirements::default";
-        let rac_dir = dirs::data_local_dir().unwrap().join("RAC");
-        let logs_path = rac_dir.join("logs.txt");
+        let rac_dir = dirs::data_local_dir().unwrap().join(defaults::RAC_DIR);
+        let logs_path = rac_dir.join(defaults::RAC_LOG_PATH);
 
         if !rac_dir.exists() {
             if let Err(e) = std::fs::create_dir_all(&rac_dir) {
@@ -54,6 +59,7 @@ impl SystemValidator {
             self.validate_windows_version(),
             self.validate_directory_permissions(),
             self.validate_mouse_access(),
+            self.validate_hardware_resources(),
         ];
 
         for result in validations {
@@ -133,7 +139,65 @@ impl SystemValidator {
                 log_error(error_msg, context);
                 return ValidationResult::with_message(false, error_msg);
             }
+
+            mouse_event(MOUSEEVENTF_MOVE, 1, 1, 0, 0);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            mouse_event(MOUSEEVENTF_MOVE, -1, -1, 0, 0);
+
             ValidationResult::new(true)
         }
+    }
+
+    fn validate_hardware_resources(&self) -> ValidationResult {
+        let context = "SystemValidator::validate_hardware_resources";
+
+        let mut mem_status = MEMORYSTATUSEX::default();
+        mem_status.dwLength = size_of::<MEMORYSTATUSEX>() as u32;
+        unsafe {
+            if GlobalMemoryStatusEx(&mut mem_status).is_err() {
+                let error_msg = "Failed to get memory status";
+                log_error(error_msg, context);
+                return ValidationResult::with_message(false, error_msg);
+            }
+        }
+        let total_memory_mb = mem_status.ullTotalPhys / (1024 * 1024);
+
+        let mut system_info = System::new_all();
+        system_info.refresh_all();
+        let cpu_count = system_info.cpus().len();
+        let cpu_speed_mhz = system_info.cpus().get(0).map_or(0, |cpu| cpu.frequency());
+
+        if total_memory_mb < defaults::MIN_MEMORY_MB {
+            let error_msg = format!(
+                "Insufficient total memory. Required: {} MB (4 GB), Available: {} MB",
+                defaults::MIN_MEMORY_MB,
+                total_memory_mb
+            );
+            log_error(&error_msg, context);
+            return ValidationResult::with_message(false, error_msg);
+        }
+
+        if cpu_count < defaults::MIN_CPU_CORES {
+            let error_msg = format!(
+                "Insufficient CPU cores. Required: {}, Available: {}",
+                defaults::MIN_CPU_CORES,
+                cpu_count
+            );
+            log_error(&error_msg, context);
+            return ValidationResult::with_message(false, error_msg);
+        }
+
+        let cpu_speed_ghz = cpu_speed_mhz as f64 / 1000.0;
+        if cpu_speed_ghz < defaults::MIN_CPU_SPEED_GHZ {
+            let error_msg = format!(
+                "Insufficient CPU speed. Required: {} GHz, Available: {:.2} GHz",
+                defaults::MIN_CPU_SPEED_GHZ,
+                cpu_speed_ghz
+            );
+            log_error(&error_msg, context);
+            return ValidationResult::with_message(false, error_msg);
+        }
+
+        ValidationResult::new(true)
     }
 }

@@ -8,14 +8,14 @@ use tokio::time;
 
 pub struct LicenseChecker {
     validator: Arc<LicenseValidator>,
-    is_running: Arc<AtomicBool>
+    is_running: Arc<AtomicBool>,
 }
 
 impl LicenseChecker {
     pub fn new(validator: LicenseValidator) -> Self {
         Self {
             validator: Arc::new(validator),
-            is_running: Arc::new(AtomicBool::new(true))
+            is_running: Arc::new(AtomicBool::new(true)),
         }
     }
 
