@@ -17,7 +17,8 @@ pub struct Settings {
 
     pub left_game_mode: String,
     pub right_game_mode: String,
-    pub burst_mode: bool,
+    pub post_mode: String,
+    pub burst_mode: bool
 }
 
 impl Settings {
@@ -32,7 +33,8 @@ impl Settings {
             right_max_cps: defaults::RIGHT_MAX_CPS,
             left_game_mode: defaults::LEFT_GAME_MODE.to_string(),
             right_game_mode: defaults::RIGHT_GAME_MODE.to_string(),
-            burst_mode: defaults::BURST_MODE,
+            post_mode: defaults::POST_MODE.to_string(),
+            burst_mode: defaults::BURST_MODE
         }
     }
 

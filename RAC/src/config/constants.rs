@@ -18,6 +18,7 @@ pub mod defaults {
 
     pub const LEFT_GAME_MODE: &str = "Combo";
     pub const RIGHT_GAME_MODE: &str = "Combo";
+    pub const POST_MODE: &str = "Default";
 
     pub const ADAPTIVE_CPU_MODE: bool = false;
     pub const BURST_MODE: bool = true;

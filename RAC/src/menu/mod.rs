@@ -1,5 +1,5 @@
 use crate::config::settings::Settings;
-use crate::input::click_executor::{ClickExecutor, GameMode, MouseButton};
+use crate::input::click_executor::{ClickExecutor, GameMode, MouseButton, PostMode};
 use crate::input::click_service::ClickService;
 use crate::logger::logger::{log_error, log_info};
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
@@ -100,8 +100,8 @@ impl Menu {
             println!("4. Configure Advanced Settings");
             println!("5. Configure Toggle Mode");
             println!("6. Configure Click Mode");
-            println!("7. Exit");
-            print!("\nSelect option: ");
+            println!("7. Configure Post Mode");
+            println!("8. Exit");
 
             if let Err(e) = io::stdout().flush() {
                 log_error(&format!("Failed to flush stdout: {}", e), context);
@@ -120,7 +120,8 @@ impl Menu {
                 "4" => self.configure_advanced_settings(),
                 "5" => self.configure_toggle_mode(),
                 "6" => self.configure_click_mode(),
-                "7" => self.perform_clean_exit(),
+                "7" => self.configure_post_mode(),
+                "8" => self.perform_clean_exit(),
                 _ => {
                     log_error("Invalid menu option selected", context);
                     println!("\nInvalid option! Press Enter to continue...");
@@ -198,10 +199,18 @@ impl Menu {
         println!("\n=== Left Click Settings ===");
         println!("1. Max CPS: {}", settings.left_max_cps);
         println!("2. Randomize Click Delay: {}", if settings.left_game_mode == "Combo" { "Enabled" } else { "Disabled" });
+        println!("3. Post Mode: {}", match self.click_service.get_left_click_executor().post_mode {
+            PostMode::Default => "Default",
+            PostMode::Bedwars => "Bedwars",
+        });
 
         println!("\n=== Right Click Settings ===");
         println!("Max CPS: {}", self.click_service.get_right_click_executor().get_current_max_cps());
         println!("Randomize Click Delay: {}", if settings.right_game_mode == "Combo" { "Enabled" } else { "Disabled" });
+        println!("3. Post Mode: {}", match self.click_service.get_left_click_executor().post_mode {
+            PostMode::Default => "Default",
+            PostMode::Bedwars => "Bedwars",
+        });
 
         println!("\nPress Enter to continue...");
         let mut _input = String::new();
@@ -456,6 +465,80 @@ impl Menu {
                 }
             }
         }
+    }
+
+    fn configure_post_mode(&mut self) {
+        let context = "Menu::configure_post_mode";
+
+        self.clear_console();
+        println!("=== Post Mode Configuration ===");
+        println!("\nPost Mode determines the click pattern behavior:");
+        println!("1. Default Mode (Standard clicking pattern)");
+        println!("2. Bedwars Mode (Optimized for Bedwars gameplay)");
+        println!("3. Back to Main Menu");
+        print!("\nSelect option: ");
+
+        if let Err(e) = io::stdout().flush() {
+            log_error(&format!("Failed to flush stdout: {}", e), context);
+            return;
+        }
+
+        let mut choice = String::new();
+        if let Err(e) = io::stdin().read_line(&mut choice) {
+            log_error(&format!("Failed to read user input: {}", e), context);
+            return;
+        }
+
+        match choice.trim() {
+            "1" => {
+                let left_executor = self.click_service.get_left_click_executor();
+                let right_executor = self.click_service.get_right_click_executor();
+
+                unsafe {
+                    let left_ptr = Arc::as_ptr(&left_executor) as *mut ClickExecutor;
+                    (*left_ptr).post_mode = PostMode::Default;
+
+                    let right_ptr = Arc::as_ptr(&right_executor) as *mut ClickExecutor;
+                    (*right_ptr).post_mode = PostMode::Default;
+                }
+
+                let mut settings = Settings::load().unwrap_or_default();
+                settings.post_mode = "Default".to_string();
+                if let Err(e) = settings.save() {
+                    log_error(&format!("Failed to save settings: {}", e), context);
+                }
+
+                println!("\nPost Mode set to Default");
+            }
+            "2" => {
+                let left_executor = self.click_service.get_left_click_executor();
+                let right_executor = self.click_service.get_right_click_executor();
+
+                unsafe {
+                    let left_ptr = Arc::as_ptr(&left_executor) as *mut ClickExecutor;
+                    (*left_ptr).post_mode = PostMode::Bedwars;
+
+                    let right_ptr = Arc::as_ptr(&right_executor) as *mut ClickExecutor;
+                    (*right_ptr).post_mode = PostMode::Bedwars;
+                }
+
+                let mut settings = Settings::load().unwrap_or_default();
+                settings.post_mode = "Bedwars".to_string();
+                if let Err(e) = settings.save() {
+                    log_error(&format!("Failed to save settings: {}", e), context);
+                }
+
+                println!("\nPost Mode set to Bedwars");
+            }
+            "3" => return,
+            _ => {
+                println!("\nInvalid option! Press Enter to continue...");
+            }
+        }
+
+        println!("\nPress Enter to continue...");
+        let mut _input = String::new();
+        let _ = io::stdin().read_line(&mut _input);
     }
 
     fn configure_click_mode(&mut self) {

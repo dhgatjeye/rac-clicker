@@ -2,12 +2,14 @@ use crate::config::settings::Settings;
 use crate::logger::logger::{log_error, log_info};
 use rand::Rng;
 use std::time::Duration;
+use crate::input::click_executor::{PostMode};
 
 pub struct DelayProvider {
     delay_buffer: Vec<Duration>,
     current_index: usize,
     pub(crate) burst_mode: bool,
     burst_counter: u8,
+    pub(crate) post_mode: PostMode,
 }
 
 impl DelayProvider {
@@ -21,6 +23,10 @@ impl DelayProvider {
             current_index: 0,
             burst_mode: settings.burst_mode,
             burst_counter: 0,
+            post_mode: match settings.post_mode.as_str() {
+                "Bedwars" => PostMode::Bedwars,
+                _ => PostMode::Default,
+            },
         };
 
         match provider.initialize_delay_buffer() {
@@ -69,6 +75,25 @@ impl DelayProvider {
             base_delay.saturating_sub(Duration::from_micros(-micro_adjust as u64))
         } else {
             base_delay.saturating_add(Duration::from_micros(micro_adjust as u64))
+        };
+
+        let settings = Settings::load().unwrap_or_else(|_| Settings::default());
+        let post_mode = match settings.post_mode.as_str() {
+            "Bedwars" => PostMode::Bedwars,
+            _ => PostMode::Default,
+        };
+
+        let final_delay = match post_mode {
+            PostMode::Bedwars => {
+                final_delay
+            },
+            PostMode::Default => {
+                if final_delay < Duration::from_micros(200) {
+                    Duration::from_micros(200)
+                } else {
+                    final_delay
+                }
+            }
         };
 
         final_delay

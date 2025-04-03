@@ -23,6 +23,12 @@ pub enum GameMode {
     Default,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PostMode {
+    Bedwars,
+    Default,
+}
+
 pub struct ClickExecutor {
     pub(crate) thread_controller: ThreadController,
     left_game_mode: Arc<Mutex<GameMode>>,
@@ -33,6 +39,7 @@ pub struct ClickExecutor {
     current_button: Mutex<MouseButton>,
     last_release_time: Mutex<Option<std::time::Instant>>,
     was_button_pressed: AtomicBool,
+    pub(crate) post_mode: PostMode
 }
 
 impl ClickExecutor {
@@ -49,6 +56,11 @@ impl ClickExecutor {
             _ => GameMode::Default,
         };
 
+        let post_mode = match settings.post_mode.as_str() {
+            "Bedwars" => PostMode::Bedwars,
+            _ => PostMode::Default,
+        };
+
         Self {
             thread_controller,
             left_game_mode: Arc::new(Mutex::new(left_mode)),
@@ -59,6 +71,7 @@ impl ClickExecutor {
             current_button: Mutex::new(MouseButton::Left),
             last_release_time: Mutex::new(None),
             was_button_pressed: AtomicBool::new(false),
+            post_mode,
         }
     }
 
@@ -141,6 +154,7 @@ impl ClickExecutor {
         };
 
         let cps_delay = if max_cps == 0 { 1_000_000 } else { 1_000_000 / max_cps as u64 };
+        let down_time = 1; // 0.25ms
 
         unsafe {
             if let Err(_) = std::panic::catch_unwind(|| {
@@ -151,17 +165,37 @@ impl ClickExecutor {
                     self.was_button_pressed.store(true, Ordering::SeqCst);
                 }
 
-                PostMessageA(hwnd, down_msg, flags, 0);
-                PostMessageA(hwnd, up_msg, 0, 0);
+                match self.post_mode {
+                    PostMode::Bedwars => {
+                        PostMessageA(hwnd, down_msg, flags, 0);
+                        PostMessageA(hwnd, up_msg, 0, 0);
 
-                let mut adjusted_delay = cps_delay.saturating_sub(1);
-                if game_mode == GameMode::Combo {
-                    #[allow(deprecated)]
-                    let jitter = rng.gen_range(-500..=500);
-                    adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
+                        let mut adjusted_delay = cps_delay.saturating_sub(1);
+                        if game_mode == GameMode::Combo {
+                            #[allow(deprecated)]
+                            let jitter = rng.gen_range(-500..=500);
+                            adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
+                        }
+
+                        self.thread_controller.smart_sleep(Duration::from_micros(adjusted_delay));
+                    }
+                    PostMode::Default => {
+                        PostMessageA(hwnd, down_msg, flags, 0);
+
+                        self.thread_controller.smart_sleep(Duration::from_micros(down_time));
+
+                        PostMessageA(hwnd, up_msg, 0, 0);
+
+                        let mut adjusted_delay = cps_delay.saturating_sub(down_time);
+                        if game_mode == GameMode::Combo {
+                            #[allow(deprecated)]
+                            let jitter = rng.gen_range(-500..=500);
+                            adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
+                        }
+
+                        self.thread_controller.smart_sleep(Duration::from_micros(adjusted_delay));
+                    }
                 }
-
-                self.thread_controller.smart_sleep(Duration::from_micros(adjusted_delay));
             }) {
                 log_error("Failed to execute mouse event", context);
                 return false;
