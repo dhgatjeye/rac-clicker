@@ -1,7 +1,6 @@
 use crate::config::settings::Settings;
 use crate::input::thread_controller::ThreadController;
 use crate::logger::logger::log_error;
-use rand::Rng;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -39,7 +38,7 @@ pub struct ClickExecutor {
     current_button: Mutex<MouseButton>,
     last_release_time: Mutex<Option<std::time::Instant>>,
     was_button_pressed: AtomicBool,
-    pub(crate) post_mode: PostMode
+    pub(crate) post_mode: PostMode,
 }
 
 impl ClickExecutor {
@@ -153,27 +152,30 @@ impl ClickExecutor {
             ),
         };
 
-        let cps_delay = if max_cps == 0 { 1_000_000 } else { 1_000_000 / max_cps as u64 };
-        let down_time = 1; // 0.25ms
+        let base_cps_delay = if max_cps == 0 { 1_000_000 } else { 1_000_000 / max_cps as u64 };
 
         unsafe {
             if let Err(_) = std::panic::catch_unwind(|| {
+                use rand::Rng;
                 let mut rng = rand::rng();
 
                 if !self.was_button_pressed.load(Ordering::SeqCst) {
-                    self.thread_controller.smart_sleep(Duration::from_micros(cps_delay));
+                    self.thread_controller.smart_sleep(Duration::from_micros(base_cps_delay));
                     self.was_button_pressed.store(true, Ordering::SeqCst);
                 }
 
                 match self.post_mode {
                     PostMode::Bedwars => {
                         PostMessageA(hwnd, down_msg, flags, 0);
+
+                        self.thread_controller.smart_sleep(Duration::from_nanos(1));
+
                         PostMessageA(hwnd, up_msg, 0, 0);
 
-                        let mut adjusted_delay = cps_delay.saturating_sub(1);
+                        let mut adjusted_delay = base_cps_delay.saturating_sub(1);
+
                         if game_mode == GameMode::Combo {
-                            #[allow(deprecated)]
-                            let jitter = rng.gen_range(-500..=500);
+                            let jitter = rng.random_range(-10..=10);
                             adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
                         }
 
@@ -182,14 +184,14 @@ impl ClickExecutor {
                     PostMode::Default => {
                         PostMessageA(hwnd, down_msg, flags, 0);
 
+                        let down_time = rng.random_range(1..5);
                         self.thread_controller.smart_sleep(Duration::from_micros(down_time));
 
                         PostMessageA(hwnd, up_msg, 0, 0);
 
-                        let mut adjusted_delay = cps_delay.saturating_sub(down_time);
+                        let mut adjusted_delay = base_cps_delay.saturating_sub(down_time);
                         if game_mode == GameMode::Combo {
-                            #[allow(deprecated)]
-                            let jitter = rng.gen_range(-500..=500);
+                            let jitter = rng.random_range(-500..=500);
                             adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
                         }
 
@@ -204,6 +206,7 @@ impl ClickExecutor {
 
         true
     }
+
 
     pub fn handle_button_release(&self) {
         if let Ok(mut last_release) = self.last_release_time.lock() {

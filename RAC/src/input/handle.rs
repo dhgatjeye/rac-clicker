@@ -20,4 +20,8 @@ impl Handle {
     pub fn set(&mut self, handle: HWND) {
         self.handle = handle;
     }
+
+    pub fn reset(&mut self) {
+        self.handle = null_mut();
+    }
 }

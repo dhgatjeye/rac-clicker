@@ -1,6 +1,6 @@
 [package]
 name = "RAC"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["RAC"]
 edition = "2021"
 description = "Short for Robust Auto Click for CraftRise, Made By LuaCodder"
@@ -29,8 +29,8 @@ chrono = "0.4.40"
 wmi = "0.15.2"
 time = "0.3.41"
 aes-gcm = "0.10.3"
-tokio = { version = "1.44.1", features = ["full"] }
+tokio = { version = "1.44.1", features = ["full",  "rt-multi-thread"] }
 rsa = { version = "0.9.8", features = ["sha2"] }
 sysinfo = "0.34.2"
-winapi = { version = "0.3.9", features = ["windef", "winuser", "winnt", "minwindef", "processthreadsapi", "winbase"] }
-crossterm = "0.28.1"
+winapi = { version = "0.3.9", features = ["windef", "winuser", "winnt", "minwindef", "processthreadsapi", "winbase", "wingdi", "psapi"] }
+crossterm = "0.29.0"

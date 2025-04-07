@@ -18,7 +18,6 @@ unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> i
     let data = &mut *(lparam as *mut FindWindowData);
     let mut process_id: DWORD = 0;
     GetWindowThreadProcessId(hwnd, &mut process_id);
-
     if process_id == data.pid {
         let is_visible = IsWindowVisible(hwnd) != 0;
         if !data.require_visibility || is_visible {
@@ -47,29 +46,38 @@ impl WindowFinder {
         }
     }
 
+    pub fn clone(&self) -> Self {
+        Self {
+            target_process: self.target_process.clone(),
+            system: Arc::clone(&self.system),
+            last_found_pid: self.last_found_pid,
+            require_visibility: self.require_visibility,
+        }
+    }
+
     pub fn update_target_process(&self, new_target_process: &str) -> bool {
         if self.target_process == new_target_process {
             return false;
         }
-
         unsafe {
             let self_ptr = self as *const WindowFinder as *mut WindowFinder;
             (*self_ptr).target_process = new_target_process.to_string();
             (*self_ptr).last_found_pid = None;
         }
-
         true
     }
 
     pub fn find_target_window(&self, hwnd_handle: &Arc<Mutex<Handle>>) -> Option<HWND> {
-        let mut reset_pid = false;
         if let Some(pid) = self.last_found_pid {
             if let Some(hwnd) = self.find_window_for_pid(pid) {
                 let mut hwnd_guard = hwnd_handle.lock().unwrap();
                 hwnd_guard.set(hwnd);
                 return Some(hwnd);
             } else {
-                reset_pid = true;
+                unsafe {
+                    let self_ptr = self as *const WindowFinder as *mut WindowFinder;
+                    (*self_ptr).last_found_pid = None;
+                }
             }
         }
 
@@ -84,7 +92,6 @@ impl WindowFinder {
                 break;
             }
         }
-
         drop(sys);
 
         if let Some(pid) = target_pid {
@@ -92,23 +99,10 @@ impl WindowFinder {
                 let self_ptr = self as *const WindowFinder as *mut WindowFinder;
                 (*self_ptr).last_found_pid = Some(pid);
             }
-
             if let Some(hwnd) = self.find_window_for_pid(pid) {
                 let mut hwnd_guard = hwnd_handle.lock().unwrap();
                 hwnd_guard.set(hwnd);
                 return Some(hwnd);
-            }
-        } else {
-            unsafe {
-                let self_ptr = self as *const WindowFinder as *mut WindowFinder;
-                (*self_ptr).last_found_pid = None;
-            }
-        }
-
-        if reset_pid {
-            unsafe {
-                let self_ptr = self as *const WindowFinder as *mut WindowFinder;
-                (*self_ptr).last_found_pid = None;
             }
         }
 
@@ -124,15 +118,16 @@ impl WindowFinder {
             window_count: 0,
             require_visibility: self.require_visibility,
         };
-
         unsafe {
             EnumWindows(Some(enum_windows_callback), &mut data as *mut _ as LPARAM);
-
             if !data.hwnd.is_null() {
                 return Some(data.hwnd);
             }
         }
-
         None
+    }
+
+    pub fn set_require_visibility(&mut self, require: bool) {
+        self.require_visibility = require;
     }
 }

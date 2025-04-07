@@ -1,8 +1,8 @@
 use crate::config::settings::Settings;
+use crate::input::click_executor::PostMode;
 use crate::logger::logger::{log_error, log_info};
 use rand::Rng;
 use std::time::Duration;
-use crate::input::click_executor::{PostMode};
 
 pub struct DelayProvider {
     delay_buffer: Vec<Duration>,
@@ -86,7 +86,7 @@ impl DelayProvider {
         let final_delay = match post_mode {
             PostMode::Bedwars => {
                 final_delay
-            },
+            }
             PostMode::Default => {
                 if final_delay < Duration::from_micros(200) {
                     Duration::from_micros(200)

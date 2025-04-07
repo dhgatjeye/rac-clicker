@@ -1,7 +1,7 @@
 pub(crate) mod click_executor;
 pub(crate) mod click_service;
 mod delay_provider;
-mod handle;
+pub(crate) mod handle;
 mod sync_controller;
 mod thread_controller;
-mod window_finder;
+pub(crate) mod window_finder;

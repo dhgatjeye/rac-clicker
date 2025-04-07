@@ -18,7 +18,7 @@ pub struct Settings {
     pub left_game_mode: String,
     pub right_game_mode: String,
     pub post_mode: String,
-    pub burst_mode: bool
+    pub burst_mode: bool,
 }
 
 impl Settings {
@@ -34,7 +34,7 @@ impl Settings {
             left_game_mode: defaults::LEFT_GAME_MODE.to_string(),
             right_game_mode: defaults::RIGHT_GAME_MODE.to_string(),
             post_mode: defaults::POST_MODE.to_string(),
-            burst_mode: defaults::BURST_MODE
+            burst_mode: defaults::BURST_MODE,
         }
     }
 
