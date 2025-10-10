@@ -1,5 +1,5 @@
 # rac-clicker
-Short for Robust Auto Click for CraftRise
+Short for Robust Auto Clicker for CraftRise
 
 # Discord
 Discord link: https://discord.gg/uZsCCdPyF3
