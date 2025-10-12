@@ -1,7 +1,7 @@
 pub mod defaults {
     pub const MIN_MEMORY_MB: u64 = 4096;
     pub const MIN_CPU_CORES: usize = 2;
-    pub const MIN_CPU_SPEED_GHZ: f64 = 2.0;
+    pub const MIN_CPU_SPEED_GHZ: f64 = 1.0;
     pub const MAX_WINDOW_FIND_FAILURES: usize = 5;
 
     pub const RAC_DIR: &str = "RAC";
