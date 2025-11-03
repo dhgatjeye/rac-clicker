@@ -4,9 +4,6 @@ Short for Robust Auto Clicker for CraftRise
 # Discord
 Discord link: https://discord.gg/uZsCCdPyF3
 
-- You can contact with me in discord: **giveitashot_44**
-- Benimle discord üzerinden iletişime geçmek için: **giveitashot_44**
-
 # RAC Usage Example
 
 you can just download and install rustlang run the command;
