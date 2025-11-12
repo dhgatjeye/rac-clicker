@@ -1,4 +1,5 @@
 use crate::logger::logger::log_error;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -6,33 +7,33 @@ use windows::Win32::System::Threading::{GetCurrentThread, SetThreadPriority};
 use windows::Win32::System::Threading::{THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL, THREAD_PRIORITY_TIME_CRITICAL};
 
 pub struct ThreadController {
-    adaptive_mode: bool,
+    adaptive_mode: AtomicBool,
 }
 
 impl ThreadController {
     pub(crate) fn clone(&self) -> ThreadController {
         ThreadController {
-            adaptive_mode: self.adaptive_mode,
+            adaptive_mode: AtomicBool::new(self.adaptive_mode.load(Ordering::Relaxed)),
         }
     }
 }
 
 impl ThreadController {
     pub fn new(adaptive_mode: bool) -> Self {
-        Self { adaptive_mode }
+        Self { 
+            adaptive_mode: AtomicBool::new(adaptive_mode)
+        }
     }
 
+    #[inline]
     pub fn set_adaptive_mode(&self, adaptive_mode: bool) {
-        unsafe {
-            let self_ptr = self as *const ThreadController as *mut ThreadController;
-            (*self_ptr).adaptive_mode = adaptive_mode;
-        }
+        self.adaptive_mode.store(adaptive_mode, Ordering::Relaxed);
     }
 
     pub fn set_active_priority(&self) {
         let context = "ThreadController::set_active_priority";
         unsafe {
-            let priority = if self.adaptive_mode {
+            let priority = if self.adaptive_mode.load(Ordering::Relaxed) {
                 THREAD_PRIORITY_NORMAL
             } else {
                 THREAD_PRIORITY_TIME_CRITICAL
@@ -62,14 +63,17 @@ impl ThreadController {
         }
     }
 
+    #[inline]
     pub fn smart_sleep(&self, duration: Duration) {
-        if duration.as_micros() < 1 {
+        if duration.as_nanos() < 1 {
             return;
         }
 
         if duration.as_micros() < 1000 {
             let start = Instant::now();
-            while start.elapsed() < duration {}
+            while start.elapsed() < duration {
+                std::hint::spin_loop();
+            }
             return;
         }
 
