@@ -110,23 +110,21 @@ impl ClickService {
             right_click_executor: Arc::new(ClickExecutor::new((*right_thread_controller).clone())),
         });
 
-        let left_click_executor = Arc::clone(&service.left_click_executor);
-        left_click_executor.set_max_cps(settings_clone.left_max_cps);
-        left_click_executor.set_mouse_button(MouseButton::Left);
+        service.left_click_executor.set_max_cps(settings_clone.left_max_cps);
+        service.left_click_executor.set_mouse_button(MouseButton::Left);
         let left_mode = match settings_clone.left_game_mode.as_str() {
             "Combo" => GameMode::Combo,
             _ => GameMode::Default,
         };
-        left_click_executor.set_game_mode(left_mode);
+        service.left_click_executor.set_game_mode(left_mode);
 
-        let right_click_executor = Arc::clone(&service.right_click_executor);
-        right_click_executor.set_max_cps(settings_clone.right_max_cps);
-        right_click_executor.set_mouse_button(MouseButton::Right);
+        service.right_click_executor.set_max_cps(settings_clone.right_max_cps);
+        service.right_click_executor.set_mouse_button(MouseButton::Right);
         let right_mode = match settings_clone.right_game_mode.as_str() {
             "Combo" => GameMode::Combo,
             _ => GameMode::Default,
         };
-        right_click_executor.set_game_mode(right_mode);
+        service.right_click_executor.set_game_mode(right_mode);
 
         let service_clone = service.clone();
         match thread::Builder::new()
@@ -198,9 +196,12 @@ impl ClickService {
                 continue;
             }
 
-            let settings = Settings::load().unwrap_or_default();
+            let hotkey_hold_mode = {
+                let settings = self.settings.lock().unwrap();
+                settings.hotkey_hold_mode
+            };
 
-            let should_click = if settings.hotkey_hold_mode {
+            let should_click = if hotkey_hold_mode {
                 click_executor.is_active()
             } else {
                 let is_pressed = self.is_mouse_button_pressed(button);
@@ -268,7 +269,10 @@ impl ClickService {
     }
 
     fn configure_click_executor(&self, button: MouseButton, executor: &Arc<ClickExecutor>) {
-        let settings = Settings::load().unwrap_or_default();
+        let settings = match self.settings.lock() {
+            Ok(s) => s.clone(),
+            Err(_) => Settings::default(),
+        };
 
         match button {
             MouseButton::Left => {
