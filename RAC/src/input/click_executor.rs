@@ -22,6 +22,34 @@ thread_local! {
     ));
 }
 
+const CPS_DELAYS: [u64; 25] = [
+    1_000_000, // 1 CPS
+    500_000,   // 2 CPS
+    333_333,   // 3 CPS
+    250_000,   // 4 CPS
+    200_000,   // 5 CPS
+    166_667,   // 6 CPS
+    142_857,   // 7 CPS
+    125_000,   // 8 CPS
+    111_111,   // 9 CPS
+    100_000,   // 10 CPS
+    90_909,    // 11 CPS
+    83_333,    // 12 CPS
+    76_923,    // 13 CPS
+    71_429,    // 14 CPS
+    66_667,    // 15 CPS
+    62_500,    // 16 CPS
+    58_824,    // 17 CPS
+    55_556,    // 18 CPS
+    52_632,    // 19 CPS
+    50_000,    // 20 CPS
+    47_619,    // 21 CPS
+    45_455,    // 22 CPS
+    43_478,    // 23 CPS
+    41_667,    // 24 CPS
+    40_000,    // 25 CPS
+];
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum MouseButton {
@@ -180,8 +208,14 @@ impl ClickExecutor {
                 },
             ),
         };
-
-        let base_cps_delay = if max_cps == 0 { 1_000_000 } else { 1_000_000 / max_cps as u64 };
+        
+        let base_cps_delay = if max_cps > 0 && max_cps <= 25 {
+            CPS_DELAYS[(max_cps - 1) as usize]
+        } else if max_cps > 25 {
+            1_000_000 / max_cps as u64
+        } else {
+            1_000_000 
+        };
 
         unsafe {
             if let Err(_) = std::panic::catch_unwind(|| {
