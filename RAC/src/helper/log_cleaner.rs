@@ -2,13 +2,15 @@ use crate::config::constants::defaults;
 use std::fs;
 use std::io::{self};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 pub struct LogCleaner {
     max_size_bytes: usize,
     check_interval_secs: u64,
-    running: bool,
+    running: Arc<AtomicBool>,
 }
 
 impl LogCleaner {
@@ -16,29 +18,43 @@ impl LogCleaner {
         Self {
             max_size_bytes,
             check_interval_secs,
-            running: false,
+            running: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub fn start(&mut self) {
-        if self.running {
+        if self.running.load(Ordering::Relaxed) {
             return;
         }
 
-        self.running = true;
+        self.running.store(true, Ordering::Relaxed);
 
         let max_size = self.max_size_bytes;
         let interval = self.check_interval_secs;
+        let running = Arc::clone(&self.running);
 
         thread::spawn(move || {
-            loop {
+            if let Err(e) = Self::clean_logs(max_size) {
+                eprintln!("Error cleaning logs: {}", e);
+            }
+
+            while running.load(Ordering::Relaxed) {
+                for _ in 0..interval {
+                    if !running.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    thread::sleep(Duration::from_secs(1));
+                }
+
                 if let Err(e) = Self::clean_logs(max_size) {
                     eprintln!("Error cleaning logs: {}", e);
                 }
-
-                thread::sleep(Duration::from_secs(interval));
             }
         });
+    }
+
+    pub fn stop(&self) {
+        self.running.store(false, Ordering::Relaxed);
     }
 
     fn clean_logs(max_size: usize) -> io::Result<()> {
@@ -63,5 +79,11 @@ impl LogCleaner {
 
         let log_path = local_app_data.join(defaults::RAC_DIR).join(defaults::RAC_LOG_PATH);
         Ok(log_path)
+    }
+}
+
+impl Drop for LogCleaner {
+    fn drop(&mut self) {
+        self.stop();
     }
 }

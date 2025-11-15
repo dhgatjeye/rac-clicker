@@ -21,11 +21,10 @@ impl ThreadController {
 impl ThreadController {
     pub fn new(adaptive_mode: bool) -> Self {
         Self { 
-            adaptive_mode: AtomicBool::new(adaptive_mode)
+            adaptive_mode: AtomicBool::new(adaptive_mode),
         }
     }
 
-    #[inline]
     pub fn set_adaptive_mode(&self, adaptive_mode: bool) {
         self.adaptive_mode.store(adaptive_mode, Ordering::Relaxed);
     }
@@ -63,16 +62,20 @@ impl ThreadController {
         }
     }
 
-    #[inline]
     pub fn smart_sleep(&self, duration: Duration) {
-        if duration.as_nanos() < 1 {
+        if duration.as_micros() < 1 {
             return;
         }
 
         if duration.as_micros() < 1000 {
-            let start = Instant::now();
-            while start.elapsed() < duration {
-                std::hint::spin_loop();
+            let sleep_duration = duration.saturating_mul(4) / 5;
+            if sleep_duration.as_micros() > 0 {
+                thread::sleep(sleep_duration);
+            }
+            
+            let deadline = Instant::now() + duration;
+            while Instant::now() < deadline {
+                thread::yield_now();
             }
             return;
         }

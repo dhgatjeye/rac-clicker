@@ -8,8 +8,6 @@ use std::path::PathBuf;
 pub struct Settings {
     pub target_process: String,
     pub toggle_key: i32,
-    pub left_toggle_key: i32,
-    pub right_toggle_key: i32,
     pub adaptive_cpu_mode: bool,
     pub hotkey_hold_mode: bool,
 
@@ -28,8 +26,6 @@ impl Settings {
         Self {
             target_process: defaults::TARGET_PROCESS.to_string(),
             toggle_key,
-            left_toggle_key: defaults::LEFT_TOGGLE_KEY,
-            right_toggle_key: defaults::RIGHT_TOGGLE_KEY,
             adaptive_cpu_mode: defaults::ADAPTIVE_CPU_MODE,
             hotkey_hold_mode: defaults::HOTKEY_HOLD_MODE,
             click_mode: defaults::CLICK_MODE.to_string(),

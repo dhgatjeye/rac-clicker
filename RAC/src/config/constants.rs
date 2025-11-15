@@ -10,8 +10,6 @@ pub mod defaults {
     pub const TARGET_PROCESS: &str = "craftrise-x64.exe";
 
     pub const TOGGLE_KEY: i32 = 0;
-    pub const LEFT_TOGGLE_KEY: i32 = 0;
-    pub const RIGHT_TOGGLE_KEY: i32 = 0;
     pub const HOTKEY_HOLD_MODE: bool = false;
 
     pub const LEFT_MAX_CPS: u8 = 15;

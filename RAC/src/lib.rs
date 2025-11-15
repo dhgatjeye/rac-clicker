@@ -37,7 +37,7 @@ pub fn initialize_services() -> Result<(), String> {
         return Err(validation_result.message.unwrap_or_else(|| "Unknown validation error".to_string()));
     }
 
-    let mut log_cleaner = LogCleaner::new(1_000_000, 60);
+    let mut log_cleaner = LogCleaner::new(1_000_000, 300);
     log_cleaner.start();
 
     Ok(())

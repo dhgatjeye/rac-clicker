@@ -25,6 +25,7 @@ struct ButtonComponents {
 struct SettingsChanges {
     target_process: bool,
     adaptive_cpu_mode: bool,
+    post_mode: bool,
 }
 
 pub struct ClickServiceConfig {
@@ -43,8 +44,8 @@ impl Default for ClickServiceConfig {
         Self {
             target_process: settings.target_process,
 
-            window_check_active_interval: Duration::from_secs(1),
-            window_check_idle_interval: Duration::from_secs(3),
+            window_check_active_interval: Duration::from_secs(2),
+            window_check_idle_interval: Duration::from_secs(10),
 
             adaptive_cpu_mode: settings.adaptive_cpu_mode,
         }
@@ -54,6 +55,7 @@ impl Default for ClickServiceConfig {
 pub struct ClickService {
     config: ClickServiceConfig,
     settings: Arc<Mutex<Settings>>,
+    cached_hotkey_hold_mode: Arc<AtomicBool>,
 
     hwnd: Arc<Mutex<Handle>>,
     window_finder: Arc<WindowFinder>,
@@ -89,7 +91,8 @@ impl ClickService {
 
         let service = Arc::new(Self {
             config,
-            settings: Arc::new(Mutex::new(settings)),
+            settings: Arc::new(Mutex::new(settings.clone())),
+            cached_hotkey_hold_mode: Arc::new(AtomicBool::new(settings.hotkey_hold_mode)),
 
             hwnd: Arc::new(Mutex::new(Handle::new())),
             window_finder: Arc::new(WindowFinder::new(&target_process)),
@@ -110,21 +113,23 @@ impl ClickService {
             right_click_executor: Arc::new(ClickExecutor::new((*right_thread_controller).clone())),
         });
 
-        service.left_click_executor.set_max_cps(settings_clone.left_max_cps);
-        service.left_click_executor.set_mouse_button(MouseButton::Left);
+        let left_click_executor = Arc::clone(&service.left_click_executor);
+        left_click_executor.set_max_cps(settings_clone.left_max_cps);
+        left_click_executor.set_mouse_button(MouseButton::Left);
         let left_mode = match settings_clone.left_game_mode.as_str() {
             "Combo" => GameMode::Combo,
             _ => GameMode::Default,
         };
-        service.left_click_executor.set_game_mode(left_mode);
+        left_click_executor.set_game_mode(left_mode);
 
-        service.right_click_executor.set_max_cps(settings_clone.right_max_cps);
-        service.right_click_executor.set_mouse_button(MouseButton::Right);
+        let right_click_executor = Arc::clone(&service.right_click_executor);
+        right_click_executor.set_max_cps(settings_clone.right_max_cps);
+        right_click_executor.set_mouse_button(MouseButton::Right);
         let right_mode = match settings_clone.right_game_mode.as_str() {
             "Combo" => GameMode::Combo,
             _ => GameMode::Default,
         };
-        service.right_click_executor.set_game_mode(right_mode);
+        right_click_executor.set_game_mode(right_mode);
 
         let service_clone = service.clone();
         match thread::Builder::new()
@@ -192,14 +197,12 @@ impl ClickService {
         self.configure_click_executor(button, &click_executor);
 
         while !thread::panicking() {
-            if !click_controller.wait_for_signal(Duration::from_millis(50)) {
+            if !click_controller.wait_for_signal(Duration::from_millis(100)) {
+                thread::yield_now();
                 continue;
             }
 
-            let hotkey_hold_mode = {
-                let settings = self.settings.lock().unwrap();
-                settings.hotkey_hold_mode
-            };
+            let hotkey_hold_mode = self.cached_hotkey_hold_mode.load(Ordering::Relaxed);
 
             let should_click = if hotkey_hold_mode {
                 click_executor.is_active()
@@ -218,6 +221,7 @@ impl ClickService {
             };
 
             if !should_click {
+                thread::yield_now();
                 continue;
             }
 
@@ -269,9 +273,9 @@ impl ClickService {
     }
 
     fn configure_click_executor(&self, button: MouseButton, executor: &Arc<ClickExecutor>) {
-        let settings = match self.settings.lock() {
-            Ok(s) => s.clone(),
-            Err(_) => Settings::default(),
+        let settings = {
+            let settings_guard = self.settings.lock().unwrap();
+            settings_guard.clone()
         };
 
         match button {
@@ -335,20 +339,9 @@ impl ClickService {
 
         log_info("Window finder thread started", CONTEXT);
 
-        let running = Arc::new(AtomicBool::new(true));
-        let running_clone = running.clone();
-
-        let default_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |panic_info| {
-            running_clone.store(false, Ordering::SeqCst);
-            default_hook(panic_info);
-        }));
-
         let mut consecutive_failures = 0;
 
-        while running.load(Ordering::SeqCst) &&
-            self.window_finder_running.load(Ordering::SeqCst) &&
-            !thread::panicking() {
+        while self.window_finder_running.load(Ordering::Relaxed) && !thread::panicking() {
             let check_interval = self.get_window_check_interval();
 
             match std::panic::catch_unwind(AssertUnwindSafe(|| {
@@ -374,10 +367,10 @@ impl ClickService {
 
                     if consecutive_failures >= defaults::MAX_WINDOW_FIND_FAILURES {
                         log_error("Too many consecutive failures, backing off", CONTEXT);
-                        thread::sleep(Duration::from_secs(10));
+                        thread::sleep(Duration::from_secs(30));
                         consecutive_failures = 0;
                     } else {
-                        thread::sleep(Duration::from_millis(500));
+                        thread::sleep(Duration::from_secs(2));
                     }
                 }
             }
@@ -447,7 +440,10 @@ impl ClickService {
                 let changes = SettingsChanges {
                     target_process: current_settings.target_process != new_settings.target_process,
                     adaptive_cpu_mode: current_settings.adaptive_cpu_mode != new_settings.adaptive_cpu_mode,
+                    post_mode: current_settings.post_mode != new_settings.post_mode,
                 };
+
+                self.cached_hotkey_hold_mode.store(new_settings.hotkey_hold_mode, Ordering::Relaxed);
 
                 {
                     let mut settings = self.settings.lock().unwrap();
@@ -461,6 +457,23 @@ impl ClickService {
                 if changes.adaptive_cpu_mode {
                     self.left_thread_controller.set_adaptive_mode(new_settings.adaptive_cpu_mode);
                     self.right_thread_controller.set_adaptive_mode(new_settings.adaptive_cpu_mode);
+                }
+
+                if changes.post_mode {
+                    let post_mode = match new_settings.post_mode.as_str() {
+                        "Bedwars" => crate::input::click_executor::PostMode::Bedwars,
+                        _ => crate::input::click_executor::PostMode::Default,
+                    };
+                    
+                    if let Ok(mut delay_provider) = self.delay_provider.lock() {
+                        delay_provider.update_post_mode(post_mode);
+                    }
+                    if let Ok(mut left_delay) = self.left_delay_provider.lock() {
+                        left_delay.update_post_mode(post_mode);
+                    }
+                    if let Ok(mut right_delay) = self.right_delay_provider.lock() {
+                        right_delay.update_post_mode(post_mode);
+                    }
                 }
             }
             Err(e) => {
