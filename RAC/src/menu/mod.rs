@@ -31,6 +31,8 @@ pub struct Menu {
     click_executor: Arc<ClickExecutor>,
 
     toggle_key: i32,
+    left_click_hotkey: i32,
+    right_click_hotkey: i32,
     toggle_mode: ToggleMode,
 
     click_mode: ClickMode,
@@ -70,6 +72,8 @@ impl Menu {
             click_service,
             click_executor,
             toggle_key: settings.toggle_key,
+            left_click_hotkey: settings.left_click_hotkey,
+            right_click_hotkey: settings.right_click_hotkey,
             toggle_mode: if settings.hotkey_hold_mode { ToggleMode::HotkeyHold } else { ToggleMode::MouseHold },
             click_mode: ClickMode::LeftClick,
             settings,
@@ -101,7 +105,8 @@ impl Menu {
             println!("5. Configure Toggle Mode");
             println!("6. Configure Click Mode");
             println!("7. Configure Post Mode");
-            println!("8. Exit");
+            println!("8. Configure Individual Hotkeys");
+            println!("9. Exit");
 
             if let Err(e) = io::stdout().flush() {
                 log_error(&format!("Failed to flush stdout: {}", e), context);
@@ -121,7 +126,8 @@ impl Menu {
                 "5" => self.configure_toggle_mode(),
                 "6" => self.configure_click_mode(),
                 "7" => self.configure_post_mode(),
-                "8" => self.perform_clean_exit(),
+                "8" => self.configure_individual_hotkeys(),
+                "9" => self.perform_clean_exit(),
                 _ => {
                     log_error("Invalid menu option selected", context);
                     println!("\nInvalid option! Press Enter to continue...");
@@ -190,7 +196,9 @@ impl Menu {
         println!("=== Current Settings ===\n");
 
         println!("Target Process: {}", settings.target_process);
-        println!("Toggle Key: {}", Self::get_key_name(settings.toggle_key));
+        println!("Toggle Key (Global): {}", Self::get_key_name(settings.toggle_key));
+        println!("Left Click Hotkey: {}", Self::get_key_name(settings.left_click_hotkey));
+        println!("Right Click Hotkey: {}", Self::get_key_name(settings.right_click_hotkey));
         println!("Adaptive CPU Mode: {}", if settings.adaptive_cpu_mode { "Enabled" } else { "Disabled" });
         println!("Toggle Mode: {}", if settings.hotkey_hold_mode { "Hotkey Hold" } else { "Mouse Hold" });
         println!("Click Mode: {}", settings.click_mode);
@@ -1095,9 +1103,17 @@ impl Menu {
     fn start_auto_clicker(&mut self) {
         let context = "Menu::start_auto_clicker";
 
-        if self.toggle_key == 0 {
+        let has_global_hotkey = self.toggle_key != 0;
+        let has_left_hotkey = self.left_click_hotkey != 0;
+        let has_right_hotkey = self.right_click_hotkey != 0;
+        let has_individual_hotkeys = has_left_hotkey || has_right_hotkey;
+
+        if !has_global_hotkey && !has_individual_hotkeys {
             self.clear_console();
-            println!("Please configure hotkey first!");
+            println!("Please configure at least one hotkey first!");
+            println!("\nYou can configure:");
+            println!("1. Global hotkey (Menu Option 1)");
+            println!("2. Individual hotkeys (Menu Option 8)");
             println!("\nPress Enter to continue...");
             let mut _input = String::new();
             if let Err(e) = io::stdin().read_line(&mut _input) {
@@ -1110,6 +1126,12 @@ impl Menu {
 
         let settings = Settings::load().unwrap_or_default();
 
+        self.toggle_mode = if settings.hotkey_hold_mode {
+            ToggleMode::HotkeyHold
+        } else {
+            ToggleMode::MouseHold
+        };
+
         self.click_mode = match settings.click_mode.as_str() {
             "LeftClick" => ClickMode::LeftClick,
             "RightClick" => ClickMode::RightClick,
@@ -1119,83 +1141,131 @@ impl Menu {
 
         self.apply_settings();
 
-        match self.click_mode {
-            ClickMode::LeftClick => {
+        if has_individual_hotkeys {
+            if has_left_hotkey {
                 self.click_service.force_enable_left_clicking();
-                self.click_service.force_disable_right_clicking();
                 let left_executor = self.click_service.get_left_click_executor();
                 left_executor.set_mouse_button(MouseButton::Left);
                 left_executor.set_max_cps(settings.left_max_cps);
-                left_executor.set_active(true);
                 let mode = match self.settings.left_game_mode.as_str() {
                     "Combo" => GameMode::Combo,
                     _ => GameMode::Default,
                 };
                 left_executor.set_game_mode(mode);
+                log_info("Left click individual hotkey configured", context);
             }
-            ClickMode::RightClick => {
+
+            if has_right_hotkey {
                 self.click_service.force_enable_right_clicking();
-                self.click_service.force_disable_left_clicking();
                 let right_executor = self.click_service.get_right_click_executor();
                 right_executor.set_mouse_button(MouseButton::Right);
                 right_executor.set_max_cps(settings.right_max_cps);
-                right_executor.set_active(true);
                 let mode = match self.settings.right_game_mode.as_str() {
                     "Combo" => GameMode::Combo,
                     _ => GameMode::Default,
                 };
                 right_executor.set_game_mode(mode);
-                log_info("Right click mode activated", context);
+                log_info("Right click individual hotkey configured", context);
             }
-            ClickMode::Both => {
-                self.click_service.force_enable_left_clicking();
-                self.click_service.force_enable_right_clicking();
-                let left_executor = self.click_service.get_left_click_executor();
-                left_executor.set_mouse_button(MouseButton::Left);
-                left_executor.set_max_cps(settings.left_max_cps);
-                left_executor.set_active(true);
-                let left_mode = match self.settings.left_game_mode.as_str() {
-                    "Combo" => GameMode::Combo,
-                    _ => GameMode::Default,
-                };
-                left_executor.set_game_mode(left_mode);
+        } else {
+            match self.click_mode {
+                ClickMode::LeftClick => {
+                    self.click_service.force_enable_left_clicking();
+                    self.click_service.force_disable_right_clicking();
+                    let left_executor = self.click_service.get_left_click_executor();
+                    left_executor.set_mouse_button(MouseButton::Left);
+                    left_executor.set_max_cps(settings.left_max_cps);
+                    left_executor.set_active(true);
+                    let mode = match self.settings.left_game_mode.as_str() {
+                        "Combo" => GameMode::Combo,
+                        _ => GameMode::Default,
+                    };
+                    left_executor.set_game_mode(mode);
+                }
+                ClickMode::RightClick => {
+                    self.click_service.force_enable_right_clicking();
+                    self.click_service.force_disable_left_clicking();
+                    let right_executor = self.click_service.get_right_click_executor();
+                    right_executor.set_mouse_button(MouseButton::Right);
+                    right_executor.set_max_cps(settings.right_max_cps);
+                    right_executor.set_active(true);
+                    let mode = match self.settings.right_game_mode.as_str() {
+                        "Combo" => GameMode::Combo,
+                        _ => GameMode::Default,
+                    };
+                    right_executor.set_game_mode(mode);
+                    log_info("Right click mode activated", context);
+                }
+                ClickMode::Both => {
+                    self.click_service.force_enable_left_clicking();
+                    self.click_service.force_enable_right_clicking();
+                    let left_executor = self.click_service.get_left_click_executor();
+                    left_executor.set_mouse_button(MouseButton::Left);
+                    left_executor.set_max_cps(settings.left_max_cps);
+                    left_executor.set_active(true);
+                    let left_mode = match self.settings.left_game_mode.as_str() {
+                        "Combo" => GameMode::Combo,
+                        _ => GameMode::Default,
+                    };
+                    left_executor.set_game_mode(left_mode);
 
-                let right_executor = self.click_service.get_right_click_executor();
-                right_executor.set_mouse_button(MouseButton::Right);
-                right_executor.set_max_cps(settings.right_max_cps);
-                right_executor.set_active(true);
-                let right_mode = match self.settings.right_game_mode.as_str() {
-                    "Combo" => GameMode::Combo,
-                    _ => GameMode::Default,
-                };
-                right_executor.set_game_mode(right_mode);
+                    let right_executor = self.click_service.get_right_click_executor();
+                    right_executor.set_mouse_button(MouseButton::Right);
+                    right_executor.set_max_cps(settings.right_max_cps);
+                    right_executor.set_active(true);
+                    let right_mode = match self.settings.right_game_mode.as_str() {
+                        "Combo" => GameMode::Combo,
+                        _ => GameMode::Default,
+                    };
+                    right_executor.set_game_mode(right_mode);
+                }
             }
         }
 
-        match self.toggle_mode {
-            ToggleMode::MouseHold => {
-                println!("RAC Started! Press {} to enable/disable.", Self::get_key_name(self.toggle_key));
-                println!("When enabled, hold mouse button to activate clicking.");
-                match self.click_mode {
-                    ClickMode::LeftClick => println!("Click Mode: LEFT CLICK"),
-                    ClickMode::RightClick => println!("Click Mode: RIGHT CLICK"),
-                    ClickMode::Both => println!("Click Mode: BOTH BUTTONS"),
+        println!("RAC Started!");
+
+        if has_individual_hotkeys {
+            println!("\n=== Individual Hotkeys Configured ===");
+            if has_left_hotkey {
+                match self.toggle_mode {
+                    ToggleMode::MouseHold => {
+                        println!("Left Click: Press {} to toggle, then hold left mouse button", Self::get_key_name(self.left_click_hotkey));
+                    }
+                    ToggleMode::HotkeyHold => {
+                        println!("Left Click: Hold {} to activate", Self::get_key_name(self.left_click_hotkey));
+                    }
                 }
-                println!("Press Ctrl+Q to return to menu.");
-                println!("Note: If clicking stops, press the toggle key twice quickly to reset.");
             }
-            ToggleMode::HotkeyHold => {
-                println!("RAC Started!");
-                println!("Hold {} to activate clicking.", Self::get_key_name(self.toggle_key));
-                match self.click_mode {
-                    ClickMode::LeftClick => println!("Click Mode: LEFT CLICK"),
-                    ClickMode::RightClick => println!("Click Mode: RIGHT CLICK"),
-                    ClickMode::Both => println!("Click Mode: BOTH BUTTONS"),
+            if has_right_hotkey {
+                match self.toggle_mode {
+                    ToggleMode::MouseHold => {
+                        println!("Right Click: Press {} to toggle, then hold right mouse button", Self::get_key_name(self.right_click_hotkey));
+                    }
+                    ToggleMode::HotkeyHold => {
+                        println!("Right Click: Hold {} to activate", Self::get_key_name(self.right_click_hotkey));
+                    }
                 }
-                println!("Press Ctrl+Q to return to menu.");
-                println!("Note: If clicking stops, press the toggle key twice quickly to reset.");
+            }
+        } else if has_global_hotkey {
+            println!("\n=== Global Hotkey Configured ===");
+            match self.toggle_mode {
+                ToggleMode::MouseHold => {
+                    println!("Press {} to enable/disable.", Self::get_key_name(self.toggle_key));
+                    println!("When enabled, hold mouse button to activate clicking.");
+                }
+                ToggleMode::HotkeyHold => {
+                    println!("Hold {} to activate clicking.", Self::get_key_name(self.toggle_key));
+                }
+            }
+            match self.click_mode {
+                ClickMode::LeftClick => println!("Click Mode: LEFT CLICK"),
+                ClickMode::RightClick => println!("Click Mode: RIGHT CLICK"),
+                ClickMode::Both => println!("Click Mode: BOTH BUTTONS"),
             }
         }
+
+        println!("\nPress Ctrl+Q to return to menu.");
+        println!("Note: If clicking stops, press the hotkey twice quickly to reset.");
 
         self.run_main_loop();
     }
@@ -1206,10 +1276,15 @@ impl Menu {
 
         thread::spawn(move || {
             let mut was_pressed = false;
+            let mut was_left_pressed = false;
+            let mut was_right_pressed = false;
 
             loop {
                 let settings = Settings::load().unwrap_or_default();
                 let toggle_key = settings.toggle_key;
+                let left_click_hotkey = settings.left_click_hotkey;
+                let right_click_hotkey = settings.right_click_hotkey;
+
                 let click_mode = match settings.click_mode.as_str() {
                     "LeftClick" => ClickMode::LeftClick,
                     "RightClick" => ClickMode::RightClick,
@@ -1225,54 +1300,100 @@ impl Menu {
 
                 let is_pressed = unsafe { (GetAsyncKeyState(toggle_key) & 0x8000u16 as i16) != 0 };
 
-                match toggle_mode {
-                    ToggleMode::MouseHold => {
-                        if is_pressed && !was_pressed {
-                            let is_active = !left_executor.is_active();
+                let is_left_hotkey_pressed = if left_click_hotkey != 0 {
+                    unsafe { (GetAsyncKeyState(left_click_hotkey) & 0x8000u16 as i16) != 0 }
+                } else {
+                    false
+                };
+
+                let is_right_hotkey_pressed = if right_click_hotkey != 0 {
+                    unsafe { (GetAsyncKeyState(right_click_hotkey) & 0x8000u16 as i16) != 0 }
+                } else {
+                    false
+                };
+
+                if left_click_hotkey != 0 || right_click_hotkey != 0 {
+                    match toggle_mode {
+                        ToggleMode::MouseHold => {
+                            if is_left_hotkey_pressed && !was_left_pressed {
+                                let is_active = !left_executor.is_active();
+                                left_executor.set_active(is_active);
+                                left_executor.set_mouse_button(MouseButton::Left);
+                            }
+
+                            if is_right_hotkey_pressed && !was_right_pressed {
+                                let is_active = !right_executor.is_active();
+                                right_executor.set_active(is_active);
+                                right_executor.set_mouse_button(MouseButton::Right);
+                            }
+                        }
+                        ToggleMode::HotkeyHold => {
+                            if left_click_hotkey != 0 {
+                                left_executor.set_active(is_left_hotkey_pressed);
+                                left_executor.set_mouse_button(MouseButton::Left);
+                            }
+
+                            if right_click_hotkey != 0 {
+                                right_executor.set_active(is_right_hotkey_pressed);
+                                right_executor.set_mouse_button(MouseButton::Right);
+                            }
+                        }
+                    }
+
+                    was_left_pressed = is_left_hotkey_pressed;
+                    was_right_pressed = is_right_hotkey_pressed;
+                }
+
+                if toggle_key != 0 && left_click_hotkey == 0 && right_click_hotkey == 0 {
+                    match toggle_mode {
+                        ToggleMode::MouseHold => {
+                            if is_pressed && !was_pressed {
+                                let is_active = !left_executor.is_active();
+                                match click_mode {
+                                    ClickMode::LeftClick => {
+                                        left_executor.set_active(is_active);
+                                        left_executor.set_mouse_button(MouseButton::Left);
+                                        right_executor.set_active(false);
+                                    }
+                                    ClickMode::RightClick => {
+                                        right_executor.set_active(is_active);
+                                        right_executor.set_mouse_button(MouseButton::Right);
+                                        left_executor.set_active(false);
+                                    }
+                                    ClickMode::Both => {
+                                        left_executor.set_active(is_active);
+                                        left_executor.set_mouse_button(MouseButton::Left);
+                                        right_executor.set_active(is_active);
+                                        right_executor.set_mouse_button(MouseButton::Right);
+                                    }
+                                }
+                            }
+                        }
+                        ToggleMode::HotkeyHold => {
                             match click_mode {
                                 ClickMode::LeftClick => {
-                                    left_executor.set_active(is_active);
+                                    left_executor.set_active(is_pressed);
                                     left_executor.set_mouse_button(MouseButton::Left);
                                     right_executor.set_active(false);
                                 }
                                 ClickMode::RightClick => {
-                                    right_executor.set_active(is_active);
+                                    right_executor.set_active(is_pressed);
                                     right_executor.set_mouse_button(MouseButton::Right);
                                     left_executor.set_active(false);
                                 }
                                 ClickMode::Both => {
-                                    left_executor.set_active(is_active);
+                                    left_executor.set_active(is_pressed);
                                     left_executor.set_mouse_button(MouseButton::Left);
-                                    right_executor.set_active(is_active);
+                                    right_executor.set_active(is_pressed);
                                     right_executor.set_mouse_button(MouseButton::Right);
                                 }
-                            }
-                        }
-                    }
-                    ToggleMode::HotkeyHold => {
-                        match click_mode {
-                            ClickMode::LeftClick => {
-                                left_executor.set_active(is_pressed);
-                                left_executor.set_mouse_button(MouseButton::Left);
-                                right_executor.set_active(false);
-                            }
-                            ClickMode::RightClick => {
-                                right_executor.set_active(is_pressed);
-                                right_executor.set_mouse_button(MouseButton::Right);
-                                left_executor.set_active(false);
-                            }
-                            ClickMode::Both => {
-                                left_executor.set_active(is_pressed);
-                                left_executor.set_mouse_button(MouseButton::Left);
-                                right_executor.set_active(is_pressed);
-                                right_executor.set_mouse_button(MouseButton::Right);
                             }
                         }
                     }
                 }
 
                 was_pressed = is_pressed;
-                thread::sleep(Duration::from_millis(5));
+                thread::sleep(Duration::from_millis(10));
             }
         });
     }
@@ -1294,6 +1415,249 @@ impl Menu {
             0xA0..=0xB3 => format!("Special Button (0x{:02X})", key),
             0x41..=0x5A => format!("Key {}", key as u8 as char),
             _ => format!("Button Code 0x{:02X}", key),
+        }
+    }
+
+    fn configure_individual_hotkeys(&mut self) {
+        let context = "Menu::configure_individual_hotkeys";
+
+        loop {
+            self.clear_console();
+            println!("=== Individual Hotkey Configuration ===");
+            println!("\nCurrent Settings:");
+            println!("Left Click Hotkey: {}", Self::get_key_name(self.left_click_hotkey));
+            println!("Right Click Hotkey: {}", Self::get_key_name(self.right_click_hotkey));
+            println!("\n1. Configure Left Click Hotkey");
+            println!("2. Configure Right Click Hotkey");
+            println!("3. Back to Main Menu");
+            print!("\nSelect option: ");
+
+            if let Err(e) = io::stdout().flush() {
+                log_error(&format!("Failed to flush stdout: {}", e), context);
+                return;
+            }
+
+            let mut choice = String::new();
+            if let Err(e) = io::stdin().read_line(&mut choice) {
+                log_error(&format!("Failed to read user input: {}", e), context);
+                continue;
+            }
+
+            match choice.trim() {
+                "1" => self.configure_left_click_hotkey(),
+                "2" => self.configure_right_click_hotkey(),
+                "3" => return,
+                _ => {
+                    log_error("Invalid individual hotkey configuration option selected", context);
+                    println!("\nInvalid option! Press Enter to continue...");
+                    let mut _input = String::new();
+                    let _ = io::stdin().read_line(&mut _input);
+                }
+            }
+        }
+    }
+
+    fn configure_left_click_hotkey(&mut self) {
+        let context = "Menu::configure_left_click_hotkey";
+
+        self.clear_console();
+        println!("=== Left Click Hotkey Configuration ===");
+        println!("1. Configure Mouse Button");
+        println!("2. Configure Keyboard Key");
+        println!("3. Back");
+        print!("\nSelect option: ");
+
+        if let Err(e) = io::stdout().flush() {
+            log_error(&format!("Failed to flush stdout: {}", e), context);
+            return;
+        }
+
+        let mut choice = String::new();
+        if let Err(e) = io::stdin().read_line(&mut choice) {
+            log_error(&format!("Failed to read user input: {}", e), context);
+            return;
+        }
+
+        match choice.trim() {
+            "1" => self.configure_individual_mouse_hotkey(true),
+            "2" => self.configure_individual_keyboard_hotkey(true),
+            "3" => return,
+            _ => {
+                log_error("Invalid left click hotkey configuration option selected", context);
+                println!("\nInvalid option! Press Enter to continue...");
+                let mut _input = String::new();
+                let _ = io::stdin().read_line(&mut _input);
+            }
+        }
+    }
+
+    fn configure_right_click_hotkey(&mut self) {
+        let context = "Menu::configure_right_click_hotkey";
+
+        self.clear_console();
+        println!("=== Right Click Hotkey Configuration ===");
+        println!("1. Configure Mouse Button");
+        println!("2. Configure Keyboard Key");
+        println!("3. Back");
+        print!("\nSelect option: ");
+
+        if let Err(e) = io::stdout().flush() {
+            log_error(&format!("Failed to flush stdout: {}", e), context);
+            return;
+        }
+
+        let mut choice = String::new();
+        if let Err(e) = io::stdin().read_line(&mut choice) {
+            log_error(&format!("Failed to read user input: {}", e), context);
+            return;
+        }
+
+        match choice.trim() {
+            "1" => self.configure_individual_mouse_hotkey(false),
+            "2" => self.configure_individual_keyboard_hotkey(false),
+            "3" => return,
+            _ => {
+                log_error("Invalid right click hotkey configuration option selected", context);
+                println!("\nInvalid option! Press Enter to continue...");
+                let mut _input = String::new();
+                let _ = io::stdin().read_line(&mut _input);
+            }
+        }
+    }
+
+    fn configure_individual_keyboard_hotkey(&mut self, is_left: bool) {
+        let click_type = if is_left { "Left Click" } else { "Right Click" };
+        let context = format!("Menu::configure_individual_keyboard_hotkey::{}", click_type);
+
+        self.clear_console();
+        println!("=== {} Keyboard Hotkey Configuration ===", click_type);
+        println!("\nPress any key (A-Z) to set as hotkey...");
+
+        if let Err(e) = io::stdout().flush() {
+            log_error(&format!("Failed to flush stdout: {}", e), &context);
+            return;
+        }
+
+        if let Err(e) = enable_raw_mode() {
+            log_error(&format!("Failed to enable raw mode: {}", e), &context);
+            return;
+        }
+
+        let start_time = Instant::now();
+        let timeout = Duration::from_secs(30);
+        let mut input_received = false;
+
+        while start_time.elapsed() < timeout && !input_received {
+            if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
+                if let KeyCode::Char(c) = code {
+                    if c.is_ascii_alphabetic() {
+                        let virtual_key = c.to_ascii_uppercase() as i32;
+
+                        if is_left {
+                            self.left_click_hotkey = virtual_key;
+                            self.settings.left_click_hotkey = virtual_key;
+                        } else {
+                            self.right_click_hotkey = virtual_key;
+                            self.settings.right_click_hotkey = virtual_key;
+                        }
+
+                        if let Err(e) = self.settings.save() {
+                            log_error(&format!("Failed to save settings: {}", e), &context);
+                            println!("\nFailed to save settings: {}", e);
+                        } else {
+                            println!("\n{} Hotkey successfully set to: {}", click_type, Self::get_key_name(virtual_key));
+                            log_info(&format!("{} keyboard hotkey set to: 0x{:02X}", click_type, virtual_key), &context);
+                        }
+                        input_received = true;
+                    } else {
+                        println!("\nInvalid key! Please press a letter key (A-Z)...");
+                        thread::sleep(Duration::from_secs(2));
+                    }
+                }
+            }
+        }
+
+        let _ = disable_raw_mode();
+
+        if !input_received {
+            println!("\nTimeout reached! No key was pressed within {} seconds.", timeout.as_secs());
+        }
+
+        println!("Press Enter to continue...");
+        let mut _input = String::new();
+        let _ = io::stdin().read_line(&mut _input);
+    }
+
+    fn configure_individual_mouse_hotkey(&mut self, is_left: bool) {
+        let click_type = if is_left { "Left Click" } else { "Right Click" };
+        let context = format!("Menu::configure_individual_mouse_hotkey::{}", click_type);
+
+        self.clear_console();
+        println!("=== {} Mouse Hotkey Configuration ===", click_type);
+        println!("\nPress any mouse button to set as hotkey...");
+
+        if let Err(e) = io::stdout().flush() {
+            log_error(&format!("Failed to flush stdout: {}", e), &context);
+            return;
+        }
+
+        let mut mouse_key = 0;
+
+        let button_codes = [
+            0x01, 0x02, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+            0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+            0xA8, 0xA9, 0xAA, 0xAB,
+            0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3
+        ];
+
+        let start_time = Instant::now();
+        let timeout = Duration::from_secs(30);
+
+        'detection: while mouse_key == 0 && start_time.elapsed() < timeout {
+            for &key in &button_codes {
+                unsafe {
+                    let state = GetAsyncKeyState(key) as i32;
+                    if (state & 0x8000) != 0 {
+                        mouse_key = key;
+                        log_info(&format!("{} mouse key detected: 0x{:02X}", click_type, mouse_key), &context);
+                        thread::sleep(Duration::from_millis(100));
+                        break 'detection;
+                    }
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        if mouse_key == 0 {
+            println!("\nTimeout reached! No button was pressed within {} seconds.", timeout.as_secs());
+            println!("\nPress Enter to continue...");
+            let mut _input = String::new();
+            let _ = io::stdin().read_line(&mut _input);
+            return;
+        }
+
+        if is_left {
+            self.left_click_hotkey = mouse_key;
+            self.settings.left_click_hotkey = mouse_key;
+        } else {
+            self.right_click_hotkey = mouse_key;
+            self.settings.right_click_hotkey = mouse_key;
+        }
+
+        if let Err(e) = self.settings.save() {
+            log_error(&format!("Failed to save settings: {}", e), &context);
+            println!("\nFailed to save settings: {}", e);
+        } else {
+            println!("\n{} Hotkey successfully set to: {} (code: 0x{:02X})",
+                     click_type, Self::get_key_name(mouse_key), mouse_key);
+            log_info(&format!("{} mouse hotkey set to: 0x{:02X}", click_type, mouse_key), &context);
+            println!("To change the hotkey, return to the main menu and configure again.");
+            println!("\nPress Enter to continue...");
+
+            let mut _input = String::new();
+            if let Err(e) = io::stdin().read_line(&mut _input) {
+                log_error(&format!("Failed to read continue prompt: {}", e), &context);
+            }
         }
     }
 }

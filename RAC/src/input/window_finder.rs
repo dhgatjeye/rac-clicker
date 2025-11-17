@@ -46,15 +46,6 @@ impl WindowFinder {
         }
     }
 
-    pub fn clone(&self) -> Self {
-        Self {
-            target_process: Mutex::new(self.target_process.lock().unwrap().clone()),
-            system: Arc::clone(&self.system),
-            last_found_pid: Mutex::new(*self.last_found_pid.lock().unwrap()),
-            require_visibility: self.require_visibility,
-        }
-    }
-
     pub fn update_target_process(&self, new_target_process: &str) -> bool {
         let mut target = self.target_process.lock().unwrap();
         if *target == new_target_process {
@@ -122,9 +113,5 @@ impl WindowFinder {
             }
         }
         None
-    }
-
-    pub fn set_require_visibility(&mut self, require: bool) {
-        self.require_visibility = require;
     }
 }

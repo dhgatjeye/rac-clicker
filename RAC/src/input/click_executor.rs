@@ -175,7 +175,7 @@ impl ClickExecutor {
                         let mut adjusted_delay = base_cps_delay.saturating_sub(1);
 
                         if game_mode == GameMode::Combo {
-                            let jitter = rng.random_range(-10..=10);
+                            let jitter = rng.random_range(-45..=55);
                             adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
                         }
 
