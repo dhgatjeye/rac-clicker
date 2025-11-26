@@ -15,18 +15,20 @@ struct FindWindowData {
 }
 
 unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> i32 {
-    let data = &mut *(lparam as *mut FindWindowData);
-    let mut process_id: DWORD = 0;
-    GetWindowThreadProcessId(hwnd, &mut process_id);
-    if process_id == data.pid {
-        let is_visible = IsWindowVisible(hwnd) != 0;
-        if !data.require_visibility || is_visible {
-            data.hwnd = hwnd;
-            data.window_count += 1;
-            return 1;
+    unsafe {
+        let data = &mut *(lparam as *mut FindWindowData);
+        let mut process_id: DWORD = 0;
+        GetWindowThreadProcessId(hwnd, &mut process_id);
+        if process_id == data.pid {
+            let is_visible = IsWindowVisible(hwnd) != 0;
+            if !data.require_visibility || is_visible {
+                data.hwnd = hwnd;
+                data.window_count += 1;
+                return 1;
+            }
         }
+        1
     }
-    1
 }
 
 pub struct WindowFinder {
