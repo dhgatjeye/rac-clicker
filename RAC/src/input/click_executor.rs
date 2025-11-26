@@ -184,15 +184,36 @@ impl ClickExecutor {
                     PostMode::Default => {
                         PostMessageA(hwnd, down_msg, flags, 0);
 
-                        let down_time = rng.random_range(1..5);
+                        let base_down_time = 43u64;
+
+                        let down_jitter = rng.random_range(-5..=5);
+                        let down_time = base_down_time.saturating_add_signed(down_jitter);
+
                         self.thread_controller.smart_sleep(Duration::from_micros(down_time));
 
                         PostMessageA(hwnd, up_msg, 0, 0);
 
                         let mut adjusted_delay = base_cps_delay.saturating_sub(down_time);
+
                         if game_mode == GameMode::Combo {
-                            let jitter = rng.random_range(-500..=500);
+                            let jitter = rng.random_range(-40..=40);
                             adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
+                        }
+
+                        let min_delay = if max_cps >= 17 {
+                            402u64
+                        } else if max_cps >= 15 {
+                            375u64
+                        } else if max_cps >= 13 {
+                            343u64
+                        } else if max_cps >= 11 {
+                            315u64
+                        } else {
+                            290u64
+                        };
+
+                        if adjusted_delay < min_delay {
+                            adjusted_delay = min_delay;
                         }
 
                         self.thread_controller.smart_sleep(Duration::from_micros(adjusted_delay));
