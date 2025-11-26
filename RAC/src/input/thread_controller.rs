@@ -20,7 +20,7 @@ impl ThreadController {
 
 impl ThreadController {
     pub fn new(adaptive_mode: bool) -> Self {
-        Self { 
+        Self {
             adaptive_mode: AtomicBool::new(adaptive_mode),
         }
     }
@@ -66,9 +66,9 @@ impl ThreadController {
         if duration.as_micros() < 1 {
             return;
         }
-
+        
         if duration.as_micros() < 1000 {
-            let sleep_duration = duration.saturating_mul(4) / 5;
+            let sleep_duration = duration.saturating_mul(58) / 100;
             if sleep_duration.as_micros() > 0 {
                 thread::sleep(sleep_duration);
             }
@@ -79,7 +79,7 @@ impl ThreadController {
             }
             return;
         }
-
+        
         thread::sleep(duration);
     }
 }
