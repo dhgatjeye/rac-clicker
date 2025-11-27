@@ -7,9 +7,10 @@ use rsa::RsaPublicKey;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
-use std::process::Command;
 use std::{env, fs};
 use time::OffsetDateTime;
+use wmi::{WMIConnection, Variant};
+use std::collections::HashMap;
 
 use crate::logger::logger::{log_error, log_info, log_warn};
 
@@ -83,17 +84,19 @@ impl LicenseValidator {
     fn get_machine_id() -> Result<String, Box<dyn std::error::Error>> {
         #[cfg(target_os = "windows")]
         {
-            let output = Command::new("wmic")
-                .args(["csproduct", "get", "UUID"])
-                .output()?;
-            let stdout = String::from_utf8(output.stdout)?;
-            let uuid = stdout
-                .lines()
-                .nth(1)
-                .ok_or("Failed to get UUID")?
-                .trim()
-                .to_string();
-            Ok(uuid)
+            let wmi_con = WMIConnection::new()?;
+            
+            let results: Vec<HashMap<String, Variant>> = wmi_con.raw_query(
+                "SELECT UUID FROM Win32_ComputerSystemProduct"
+            )?;
+            
+            if let Some(result) = results.first() {
+                if let Some(Variant::String(uuid)) = result.get("UUID") {
+                    return Ok(uuid.clone());
+                }
+            }
+            
+            Err("Failed to get machine UUID from WMI".into())
         }
     }
 
