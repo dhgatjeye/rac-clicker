@@ -63,7 +63,7 @@ impl WindowFinder {
         
         if let Some(pid) = last_pid {
             if let Some(hwnd) = self.find_window_for_pid(pid) {
-                let mut hwnd_guard = hwnd_handle.lock().unwrap();
+                let hwnd_guard = hwnd_handle.lock().unwrap();
                 hwnd_guard.set(hwnd);
                 return Some(hwnd);
             } else {
@@ -90,13 +90,13 @@ impl WindowFinder {
             *self.last_found_pid.lock().unwrap() = Some(pid);
             
             if let Some(hwnd) = self.find_window_for_pid(pid) {
-                let mut hwnd_guard = hwnd_handle.lock().unwrap();
+                let hwnd_guard = hwnd_handle.lock().unwrap();
                 hwnd_guard.set(hwnd);
                 return Some(hwnd);
             }
         }
 
-        let mut hwnd_guard = hwnd_handle.lock().unwrap();
+        let hwnd_guard = hwnd_handle.lock().unwrap();
         hwnd_guard.set(null_mut());
         None
     }
