@@ -207,7 +207,9 @@ impl Menu {
         println!("\n=== Left Click Settings ===");
         println!("1. Max CPS: {}", settings.left_max_cps);
         println!("2. Randomize Click Delay: {}", if settings.left_game_mode == "Combo" { "Enabled" } else { "Disabled" });
-        println!("3. Post Mode: {}", match self.click_service.get_left_click_executor().post_mode {
+        let left_executor = self.click_service.get_left_click_executor();
+        let left_post_mode = *left_executor.post_mode.lock().unwrap();
+        println!("3. Post Mode: {}", match left_post_mode {
             PostMode::Default => "Default",
             PostMode::Bedwars => "Bedwars",
         });
@@ -215,7 +217,9 @@ impl Menu {
         println!("\n=== Right Click Settings ===");
         println!("Max CPS: {}", self.click_service.get_right_click_executor().get_current_max_cps());
         println!("Randomize Click Delay: {}", if settings.right_game_mode == "Combo" { "Enabled" } else { "Disabled" });
-        println!("3. Post Mode: {}", match self.click_service.get_left_click_executor().post_mode {
+        let right_executor = self.click_service.get_right_click_executor();
+        let right_post_mode = *right_executor.post_mode.lock().unwrap();
+        println!("3. Post Mode: {}", match right_post_mode {
             PostMode::Default => "Default",
             PostMode::Bedwars => "Bedwars",
         });
@@ -242,18 +246,15 @@ impl Menu {
     }
 
     fn clear_console(&self) {
-        if let Err(_) = execute!(io::stdout(), Clear(ClearType::All)) {
-            print!("\x1B[2J\x1B[3J\x1B[1;1H");
-        }
+        use crossterm::cursor::MoveTo;
 
-        #[cfg(windows)]
-        {
-            let _ = std::process::Command::new("cmd").args(["/c", "cls"]).status();
-        }
+        let _ = execute!(
+            io::stdout(),
+            MoveTo(0, 0),
+            Clear(ClearType::All)
+        );
 
-        if let Err(_e) = io::stdout().flush() {
-            log_error("Failed to clear console", "Menu::clear_console");
-        }
+        let _ = io::stdout().flush();
     }
 
     fn apply_settings(&mut self) {
@@ -502,12 +503,11 @@ impl Menu {
                 let left_executor = self.click_service.get_left_click_executor();
                 let right_executor = self.click_service.get_right_click_executor();
 
-                unsafe {
-                    let left_ptr = Arc::as_ptr(&left_executor) as *mut ClickExecutor;
-                    (*left_ptr).post_mode = PostMode::Default;
-
-                    let right_ptr = Arc::as_ptr(&right_executor) as *mut ClickExecutor;
-                    (*right_ptr).post_mode = PostMode::Default;
+                if let Ok(mut mode) = left_executor.post_mode.lock() {
+                    *mode = PostMode::Default;
+                }
+                if let Ok(mut mode) = right_executor.post_mode.lock() {
+                    *mode = PostMode::Default;
                 }
 
                 let mut settings = Settings::load().unwrap_or_default();
@@ -522,12 +522,11 @@ impl Menu {
                 let left_executor = self.click_service.get_left_click_executor();
                 let right_executor = self.click_service.get_right_click_executor();
 
-                unsafe {
-                    let left_ptr = Arc::as_ptr(&left_executor) as *mut ClickExecutor;
-                    (*left_ptr).post_mode = PostMode::Bedwars;
-
-                    let right_ptr = Arc::as_ptr(&right_executor) as *mut ClickExecutor;
-                    (*right_ptr).post_mode = PostMode::Bedwars;
+                if let Ok(mut mode) = left_executor.post_mode.lock() {
+                    *mode = PostMode::Bedwars;
+                }
+                if let Ok(mut mode) = right_executor.post_mode.lock() {
+                    *mode = PostMode::Bedwars;
                 }
 
                 let mut settings = Settings::load().unwrap_or_default();
