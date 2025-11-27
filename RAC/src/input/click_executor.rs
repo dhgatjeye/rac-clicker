@@ -38,7 +38,7 @@ pub struct ClickExecutor {
     current_button: Mutex<MouseButton>,
     last_release_time: Mutex<Option<std::time::Instant>>,
     was_button_pressed: AtomicBool,
-    pub(crate) post_mode: PostMode,
+    pub(crate) post_mode: Arc<Mutex<PostMode>>,
 }
 
 impl ClickExecutor {
@@ -70,7 +70,7 @@ impl ClickExecutor {
             current_button: Mutex::new(MouseButton::Left),
             last_release_time: Mutex::new(None),
             was_button_pressed: AtomicBool::new(false),
-            post_mode,
+            post_mode: Arc::new(Mutex::new(post_mode)),
         }
     }
 
@@ -164,7 +164,8 @@ impl ClickExecutor {
                     self.was_button_pressed.store(true, Ordering::SeqCst);
                 }
 
-                match self.post_mode {
+                let current_post_mode = *self.post_mode.lock().unwrap();
+                match current_post_mode {
                     PostMode::Bedwars => {
                         PostMessageA(hwnd, down_msg, flags, 0);
 
