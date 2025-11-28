@@ -1,8 +1,8 @@
+use rac_clicker::{check_single_instance, initialize_services, ClickService, ClickServiceConfig, Menu};
 use std::error::Error;
 use std::io;
 use std::sync::Arc;
 use tokio;
-use RAC::{check_single_instance, initialize_services, ClickService, ClickServiceConfig, Menu};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

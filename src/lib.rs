@@ -13,7 +13,6 @@ pub mod input;
 pub mod menu;
 pub mod validation;
 mod logger;
-mod auth;
 mod helper;
 
 pub struct ClickServiceMenu {

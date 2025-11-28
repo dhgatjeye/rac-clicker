@@ -1,5 +1,5 @@
 [package]
-name = "RAC"
+name = "rac-clicker"
 version = "0.2.1"
 authors = ["RAC"]
 edition = "2024"
