@@ -12,8 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use winapi::shared::windef::HWND;
-use winapi::um::winuser::GetAsyncKeyState;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON};
 
 struct ButtonComponents {
     click_controller: Arc<SyncController>,
@@ -24,7 +23,6 @@ struct ButtonComponents {
 
 struct SettingsChanges {
     target_process: bool,
-    adaptive_cpu_mode: bool,
     post_mode: bool,
 }
 
@@ -33,8 +31,6 @@ pub struct ClickServiceConfig {
 
     pub window_check_active_interval: Duration,
     pub window_check_idle_interval: Duration,
-
-    pub adaptive_cpu_mode: bool,
 }
 
 impl Default for ClickServiceConfig {
@@ -46,8 +42,6 @@ impl Default for ClickServiceConfig {
 
             window_check_active_interval: Duration::from_secs(2),
             window_check_idle_interval: Duration::from_secs(10),
-
-            adaptive_cpu_mode: settings.adaptive_cpu_mode,
         }
     }
 }
@@ -82,12 +76,11 @@ impl ClickService {
 
         let settings = Settings::load().unwrap_or_else(|_| Settings::default());
         let settings_clone = settings.clone();
-        let adaptive_cpu_mode = config.adaptive_cpu_mode;
 
         let target_process = config.target_process.clone();
 
-        let left_thread_controller = Arc::new(ThreadController::new(adaptive_cpu_mode));
-        let right_thread_controller = Arc::new(ThreadController::new(adaptive_cpu_mode));
+        let left_thread_controller = Arc::new(ThreadController::new());
+        let right_thread_controller = Arc::new(ThreadController::new());
 
         let service = Arc::new(Self {
             config,
@@ -186,9 +179,6 @@ impl ClickService {
             thread_controller,
             click_executor,
         } = components;
-
-        thread_controller.set_active_priority();
-        thread_controller.set_adaptive_mode(!self.config.adaptive_cpu_mode);
 
         let mut consecutive_failures = 0;
         let mut last_click = Instant::now();
@@ -301,13 +291,13 @@ impl ClickService {
     fn is_mouse_button_pressed(&self, button: MouseButton) -> bool {
         unsafe {
             match button {
-                MouseButton::Left => GetAsyncKeyState(0x01) < 0,
-                MouseButton::Right => GetAsyncKeyState(0x02) < 0,
+                MouseButton::Left => GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0,
+                MouseButton::Right => GetAsyncKeyState(VK_RBUTTON.0 as i32) < 0,
             }
         }
     }
 
-    fn get_current_hwnd(&self) -> HWND {
+    fn get_current_hwnd(&self) -> windows::Win32::Foundation::HWND {
         let hwnd_guard = self.hwnd.lock().unwrap();
         hwnd_guard.get()
     }
@@ -439,7 +429,6 @@ impl ClickService {
 
                 let changes = SettingsChanges {
                     target_process: current_settings.target_process != new_settings.target_process,
-                    adaptive_cpu_mode: current_settings.adaptive_cpu_mode != new_settings.adaptive_cpu_mode,
                     post_mode: current_settings.post_mode != new_settings.post_mode,
                 };
 
@@ -454,17 +443,12 @@ impl ClickService {
                     let _ = self.window_finder.update_target_process(&new_settings.target_process);
                 }
 
-                if changes.adaptive_cpu_mode {
-                    self.left_thread_controller.set_adaptive_mode(new_settings.adaptive_cpu_mode);
-                    self.right_thread_controller.set_adaptive_mode(new_settings.adaptive_cpu_mode);
-                }
-
                 if changes.post_mode {
                     let post_mode = match new_settings.post_mode.as_str() {
                         "Bedwars" => crate::input::click_executor::PostMode::Bedwars,
                         _ => crate::input::click_executor::PostMode::Default,
                     };
-                    
+
                     if let Ok(mut delay_provider) = self.delay_provider.lock() {
                         delay_provider.update_post_mode(post_mode);
                     }

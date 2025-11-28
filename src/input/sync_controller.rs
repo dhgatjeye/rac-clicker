@@ -56,7 +56,7 @@ impl SyncController {
         let (guard, _) = self.condvar.wait_timeout_while(
             guard,
             timeout,
-            |_| !self.enabled.load(Ordering::Relaxed)
+            |_| !self.enabled.load(Ordering::Relaxed),
         ).unwrap();
 
         drop(guard);

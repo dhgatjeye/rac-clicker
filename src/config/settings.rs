@@ -1,4 +1,5 @@
 use crate::config::constants::defaults;
+use crate::helper::windows_paths::get_local_appdata;
 use crate::logger::logger::{log_error, log_info};
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -10,7 +11,6 @@ pub struct Settings {
     pub toggle_key: i32,
     pub left_click_hotkey: i32,
     pub right_click_hotkey: i32,
-    pub adaptive_cpu_mode: bool,
     pub hotkey_hold_mode: bool,
 
     pub click_mode: String,
@@ -30,7 +30,6 @@ impl Settings {
             toggle_key,
             left_click_hotkey: defaults::LEFT_CLICK_HOTKEY,
             right_click_hotkey: defaults::RIGHT_CLICK_HOTKEY,
-            adaptive_cpu_mode: defaults::ADAPTIVE_CPU_MODE,
             hotkey_hold_mode: defaults::HOTKEY_HOLD_MODE,
             click_mode: defaults::CLICK_MODE.to_string(),
             left_max_cps: defaults::LEFT_MAX_CPS,
@@ -47,7 +46,7 @@ impl Settings {
     }
 
     fn get_settings_path() -> io::Result<PathBuf> {
-        let local_app_data = dirs::data_local_dir()
+        let local_app_data = get_local_appdata()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find AppData/Local directory"))?;
 
         let settings_dir = local_app_data.join(defaults::RAC_DIR);

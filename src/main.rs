@@ -2,10 +2,8 @@ use rac_clicker::{check_single_instance, initialize_services, ClickService, Clic
 use std::error::Error;
 use std::io;
 use std::sync::Arc;
-use tokio;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     if !check_single_instance() {
         eprintln!("Application is already running!");
         println!("\nPress Enter to exit...");

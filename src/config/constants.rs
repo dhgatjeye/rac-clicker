@@ -1,8 +1,7 @@
 pub mod defaults {
     pub const MIN_MEMORY_MB: u64 = 4096;
     pub const MIN_CPU_CORES: usize = 2;
-    pub const MIN_CPU_SPEED_GHZ: f64 = 1.0;
-    pub const MAX_WINDOW_FIND_FAILURES: usize = 5;
+    pub const MAX_WINDOW_FIND_FAILURES: usize = 10;
 
     pub const RAC_DIR: &str = "RAC";
     pub const RAC_LOG_PATH: &str = "logs.txt";
@@ -22,6 +21,5 @@ pub mod defaults {
     pub const RIGHT_GAME_MODE: &str = "Combo";
     pub const POST_MODE: &str = "Default";
 
-    pub const ADAPTIVE_CPU_MODE: bool = false;
     pub const BURST_MODE: bool = true;
 }

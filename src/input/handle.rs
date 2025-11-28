@@ -1,6 +1,5 @@
-use std::ptr::null_mut;
 use std::sync::atomic::{AtomicPtr, Ordering};
-use winapi::shared::windef::HWND;
+use windows::Win32::Foundation::HWND;
 
 pub struct Handle {
     handle: AtomicPtr<std::ffi::c_void>,
@@ -11,16 +10,16 @@ unsafe impl Sync for Handle {}
 
 impl Handle {
     pub fn new() -> Self {
-        Self { 
-            handle: AtomicPtr::new(null_mut()) 
+        Self {
+            handle: AtomicPtr::new(std::ptr::null_mut())
         }
     }
 
     pub fn get(&self) -> HWND {
-        self.handle.load(Ordering::Acquire) as HWND
+        HWND(self.handle.load(Ordering::Acquire))
     }
 
     pub fn set(&self, handle: HWND) {
-        self.handle.store(handle as *mut std::ffi::c_void, Ordering::Release);
+        self.handle.store(handle.0, Ordering::Release);
     }
 }

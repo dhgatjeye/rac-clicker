@@ -4,11 +4,8 @@ use crate::logger::logger::log_error;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use winapi::um::winuser::{MK_LBUTTON, MK_RBUTTON};
-use winapi::{
-    shared::windef::HWND,
-    um::winuser::{PostMessageA, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP},
-};
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageA, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MouseButton {
@@ -27,6 +24,9 @@ pub enum PostMode {
     Bedwars,
     Default,
 }
+
+const MK_LBUTTON: u32 = 0x0001;
+const MK_RBUTTON: u32 = 0x0002;
 
 pub struct ClickExecutor {
     pub(crate) thread_controller: ThreadController,
@@ -122,7 +122,7 @@ impl ClickExecutor {
     }
 
     pub fn execute_click(&self, hwnd: HWND) -> bool {
-        if hwnd.is_null() || !self.active.load(Ordering::SeqCst) {
+        if hwnd.is_invalid() || !self.active.load(Ordering::SeqCst) {
             return false;
         }
 
@@ -167,11 +167,11 @@ impl ClickExecutor {
                 let current_post_mode = *self.post_mode.lock().unwrap();
                 match current_post_mode {
                     PostMode::Bedwars => {
-                        PostMessageA(hwnd, down_msg, flags, 0);
+                        let _ = PostMessageA(Some(hwnd), down_msg, WPARAM(flags as usize), LPARAM(0));
 
                         self.thread_controller.smart_sleep(Duration::from_nanos(1));
 
-                        PostMessageA(hwnd, up_msg, 0, 0);
+                        let _ = PostMessageA(Some(hwnd), up_msg, WPARAM(0), LPARAM(0));
 
                         let mut adjusted_delay = base_cps_delay.saturating_sub(1);
 
@@ -183,7 +183,7 @@ impl ClickExecutor {
                         self.thread_controller.smart_sleep(Duration::from_micros(adjusted_delay));
                     }
                     PostMode::Default => {
-                        PostMessageA(hwnd, down_msg, flags, 0);
+                        let _ = PostMessageA(Some(hwnd), down_msg, WPARAM(flags as usize), LPARAM(0));
 
                         let base_down_time = 43u64;
 
@@ -192,7 +192,7 @@ impl ClickExecutor {
 
                         self.thread_controller.smart_sleep(Duration::from_micros(down_time));
 
-                        PostMessageA(hwnd, up_msg, 0, 0);
+                        let _ = PostMessageA(Some(hwnd), up_msg, WPARAM(0), LPARAM(0));
 
                         let mut adjusted_delay = base_cps_delay.saturating_sub(down_time);
 

@@ -199,7 +199,6 @@ impl Menu {
         println!("Toggle Key (Global): {}", Self::get_key_name(settings.toggle_key));
         println!("Left Click Hotkey: {}", Self::get_key_name(settings.left_click_hotkey));
         println!("Right Click Hotkey: {}", Self::get_key_name(settings.right_click_hotkey));
-        println!("Adaptive CPU Mode: {}", if settings.adaptive_cpu_mode { "Enabled" } else { "Disabled" });
         println!("Toggle Mode: {}", if settings.hotkey_hold_mode { "Hotkey Hold" } else { "Mouse Hold" });
         println!("Click Mode: {}", settings.click_mode);
         println!("Burst Mode: {}", if settings.burst_mode { "Enabled" } else { "Disabled" });
@@ -315,17 +314,15 @@ impl Menu {
 
     fn configure_advanced_settings(&mut self) {
         let context = "Menu::configure_advanced_settings";
-        let settings = Settings::load().unwrap_or_else(|_| Settings::default());
 
         loop {
             self.clear_console();
             println!("=== Advanced Settings ===");
-            println!("1. Configure Target Process (currently: {})", settings.target_process);
-            println!("2. Toggle Adaptive CPU Mode (currently: {})", if settings.adaptive_cpu_mode { "Enabled" } else { "Disabled" });
-            println!("3. Toggle Burst Mode");
-            println!("4. Left Click Advanced Settings");
-            println!("5. Right Click Advanced Settings");
-            println!("6. Save and Return to Main Menu");
+            println!("1. Configure Target Process (currently: {})", self.settings.target_process);
+            println!("2. Toggle Burst Mode (currently: {})", if self.settings.burst_mode { "Enabled" } else { "Disabled" });
+            println!("3. Left Click Advanced Settings");
+            println!("4. Right Click Advanced Settings");
+            println!("5. Save and Return to Main Menu");
             print!("\nSelect option: ");
 
             if let Err(e) = io::stdout().flush() {
@@ -354,73 +351,15 @@ impl Menu {
                     }
                 }
                 "2" => {
-                    self.clear_console();
-                    println!("=== Adaptive CPU Mode Configuration ===");
-                    println!("\nAdaptive CPU Mode helps optimize CPU usage by adjusting thread priorities");
-                    println!("Current status: {}", if self.settings.adaptive_cpu_mode { "Enabled" } else { "Disabled" });
-                    println!("\n1. Enable Adaptive CPU Mode");
-                    println!("2. Disable Adaptive CPU Mode");
-                    println!("3. Back");
-                    print!("\nSelect option: ");
-
-                    if let Err(e) = io::stdout().flush() {
-                        log_error(&format!("Failed to flush stdout: {}", e), context);
-                        continue;
-                    }
-
-                    let mut input = String::new();
-                    if let Err(e) = io::stdin().read_line(&mut input) {
-                        log_error(&format!("Failed to read input: {}", e), context);
-                        continue;
-                    }
-
-                    match input.trim() {
-                        "1" => {
-                            self.settings.adaptive_cpu_mode = true;
-                            self.click_service.get_left_click_executor().thread_controller.set_adaptive_mode(true);
-                            self.click_service.get_right_click_executor().thread_controller.set_adaptive_mode(true);
-
-                            if let Err(e) = self.settings.save() {
-                                log_error(&format!("Failed to save settings: {}", e), context);
-                                println!("\nFailed to save settings. Press Enter to continue...");
-                            } else {
-                                println!("\nAdaptive CPU Mode enabled. Press Enter to continue...");
-                            }
-                            let mut _input = String::new();
-                            let _ = io::stdin().read_line(&mut _input);
-                        }
-                        "2" => {
-                            self.settings.adaptive_cpu_mode = false;
-                            self.click_service.get_left_click_executor().thread_controller.set_adaptive_mode(false);
-                            self.click_service.get_right_click_executor().thread_controller.set_adaptive_mode(false);
-
-                            if let Err(e) = self.settings.save() {
-                                log_error(&format!("Failed to save settings: {}", e), context);
-                                println!("\nFailed to save settings. Press Enter to continue...");
-                            } else {
-                                println!("\nAdaptive CPU Mode disabled. Press Enter to continue...");
-                            }
-                            let mut _input = String::new();
-                            let _ = io::stdin().read_line(&mut _input);
-                        }
-                        "3" => continue,
-                        _ => {
-                            println!("\nInvalid option! Press Enter to continue...");
-                            let mut _input = String::new();
-                            let _ = io::stdin().read_line(&mut _input);
-                        }
-                    }
-                }
-                "3" => {
                     self.toggle_burst_mode();
                 }
-                "4" => {
+                "3" => {
                     self.configure_left_click_settings();
                 }
-                "5" => {
+                "4" => {
                     self.configure_right_click_settings();
                 }
-                "6" => {
+                "5" => {
                     println!("Saving all settings...");
 
                     self.settings.click_mode = match self.click_mode {
@@ -833,22 +772,16 @@ impl Menu {
 
     fn toggle_burst_mode(&mut self) {
         let context = "Menu::toggle_burst_mode";
-
-        let mut settings = Settings::load().unwrap_or_default();
-
-        settings.burst_mode = !settings.burst_mode;
+        
+        self.settings.burst_mode = !self.settings.burst_mode;
 
         if let Ok(mut delay_provider) = self.click_service.delay_provider.lock() {
             delay_provider.toggle_burst_mode();
         }
 
-        if let Err(e) = settings.save() {
-            log_error(&format!("Failed to save settings: {}", e), context);
-        }
-
         self.clear_console();
         println!("=== Burst Mode Settings ===");
-        println!("\nBurst Mode: {}", if settings.burst_mode { "Enabled" } else { "Disabled" });
+        println!("\nBurst Mode: {}", if self.settings.burst_mode { "Enabled" } else { "Disabled" });
         println!("\nPress Enter to continue...");
 
         if let Err(e) = io::stdout().flush() {

@@ -1,4 +1,5 @@
 use crate::config::constants::defaults;
+use crate::helper::windows_paths::get_local_appdata;
 use std::fs;
 use std::io::{self};
 use std::path::PathBuf;
@@ -74,7 +75,7 @@ impl LogCleaner {
     }
 
     fn get_log_file_path() -> io::Result<PathBuf> {
-        let local_app_data = dirs::data_local_dir()
+        let local_app_data = get_local_appdata()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find AppData/Local directory"))?;
 
         let log_path = local_app_data.join(defaults::RAC_DIR).join(defaults::RAC_LOG_PATH);

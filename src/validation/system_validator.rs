@@ -1,11 +1,11 @@
 use crate::config::constants::defaults;
+use crate::helper::windows_paths::get_local_appdata;
 use crate::logger::logger::{log_error, log_info};
 use crate::validation::validation_result::ValidationResult;
 use std::path::PathBuf;
-use sysinfo;
-use sysinfo::System;
+use windows::Wdk::System::SystemServices::RtlGetVersion;
 use windows::Win32::Foundation::POINT;
-use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+use windows::Win32::System::SystemInformation::{GetSystemInfo, GlobalMemoryStatusEx, MEMORYSTATUSEX, OSVERSIONINFOW, SYSTEM_INFO};
 use windows::Win32::UI::Input::KeyboardAndMouse::{mouse_event, MOUSEEVENTF_MOVE};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
@@ -17,7 +17,7 @@ pub struct SystemRequirements {
 impl Default for SystemRequirements {
     fn default() -> Self {
         let context = "SystemRequirements::default";
-        let rac_dir = dirs::data_local_dir().unwrap().join(defaults::RAC_DIR);
+        let rac_dir = get_local_appdata().unwrap().join(defaults::RAC_DIR);
         let logs_path = rac_dir.join(defaults::RAC_LOG_PATH);
 
         if !rac_dir.exists() {
@@ -87,26 +87,31 @@ impl SystemValidator {
 
     fn validate_windows_version(&self) -> ValidationResult {
         let context = "SystemValidator::validate_windows_version";
-        let version = os_info::get();
-        let version_str = version.version().to_string();
-        let major_version: i32 = match version_str.split('.').next().unwrap().parse() {
-            Ok(v) => v,
-            Err(e) => {
-                let error_msg = format!("Failed to parse Windows version: {}", e);
+
+        unsafe {
+            let mut version_info = OSVERSIONINFOW::default();
+            version_info.dwOSVersionInfoSize = size_of::<OSVERSIONINFOW>() as u32;
+
+            let status = RtlGetVersion(&mut version_info as *mut _);
+            if status.is_err() {
+                let error_msg = "Failed to get Windows version information";
+                log_error(error_msg, context);
+                return ValidationResult::with_message(false, error_msg);
+            }
+
+            let major_version = version_info.dwMajorVersion as i32;
+
+            if major_version < self.requirements.minimum_windows_version {
+                let error_msg = format!(
+                    "Unsupported Windows version. Required: {}, Current: {}",
+                    self.requirements.minimum_windows_version,
+                    major_version
+                );
                 log_error(&error_msg, context);
                 return ValidationResult::with_message(false, error_msg);
             }
-        };
-
-        if major_version < self.requirements.minimum_windows_version {
-            let error_msg = format!(
-                "Unsupported Windows version. Required: {}, Current: {}",
-                self.requirements.minimum_windows_version,
-                major_version
-            );
-            log_error(&error_msg, context);
-            return ValidationResult::with_message(false, error_msg);
         }
+
         ValidationResult::new(true)
     }
 
@@ -119,7 +124,7 @@ impl SystemValidator {
                 return ValidationResult::with_message(false, error_msg);
             }
 
-            let test_file = dir.join(format!("test_{}.tmp", uuid::Uuid::new_v4()));
+            let test_file = dir.join(format!("test_{}.tmp", rand::random::<u64>()));
             if let Err(e) = std::fs::write(&test_file, "test") {
                 let error_msg = format!("Failed to write test file in: {}", dir.display());
                 log_error(&format!("{}: {}", error_msg, e), context);
@@ -162,10 +167,11 @@ impl SystemValidator {
         }
         let total_memory_mb = mem_status.ullTotalPhys / (1024 * 1024);
 
-        let mut system_info = System::new_all();
-        system_info.refresh_all();
-        let cpu_count = system_info.cpus().len();
-        let cpu_speed_mhz = system_info.cpus().get(0).map_or(0, |cpu| cpu.frequency());
+        let mut system_info = SYSTEM_INFO::default();
+        unsafe {
+            GetSystemInfo(&mut system_info);
+        }
+        let cpu_count = system_info.dwNumberOfProcessors as usize;
 
         if total_memory_mb < defaults::MIN_MEMORY_MB {
             let error_msg = format!(
@@ -182,17 +188,6 @@ impl SystemValidator {
                 "Insufficient CPU cores. Required: {}, Available: {}",
                 defaults::MIN_CPU_CORES,
                 cpu_count
-            );
-            log_error(&error_msg, context);
-            return ValidationResult::with_message(false, error_msg);
-        }
-
-        let cpu_speed_ghz = cpu_speed_mhz as f64 / 1000.0;
-        if cpu_speed_ghz < defaults::MIN_CPU_SPEED_GHZ {
-            let error_msg = format!(
-                "Insufficient CPU speed. Required: {} GHz, Available: {:.2} GHz",
-                defaults::MIN_CPU_SPEED_GHZ,
-                cpu_speed_ghz
             );
             log_error(&error_msg, context);
             return ValidationResult::with_message(false, error_msg);
