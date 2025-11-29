@@ -1,18 +1,20 @@
 use std::io::{self, Write};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-
 use windows::core::PCSTR;
 use windows::Win32::System::Console::{
-    FillConsoleOutputAttribute, FillConsoleOutputCharacterA, GetConsoleScreenBufferInfo,
-    GetStdHandle, SetConsoleCursorPosition, SetConsoleTitleA, CONSOLE_SCREEN_BUFFER_INFO,
-    COORD, STD_OUTPUT_HANDLE,
+    FillConsoleOutputAttribute, FillConsoleOutputCharacterA, GetConsoleMode,
+    GetConsoleScreenBufferInfo, GetStdHandle, SetConsoleCursorPosition,
+    SetConsoleMode, SetConsoleTitleA, ReadConsoleInputW, PeekConsoleInputW,
+    CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO, COORD, INPUT_RECORD, KEY_EVENT,
+    ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT,
+    LEFT_CTRL_PRESSED, RIGHT_CTRL_PRESSED,
+    STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
 };
-use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_Q};
 
 use crate::config::settings::Settings;
 use crate::input::click_executor::{ClickExecutor, GameMode, MouseButton, PostMode};
@@ -151,32 +153,55 @@ impl Menu {
     fn run_main_loop(&self) {
         let context = "Menu::run_main_loop";
 
-        if let Err(e) = enable_raw_mode() {
-            log_error(&format!("Failed to enable raw mode: {}", e), context);
-        }
+        let original_mode = match Self::enable_raw_mode() {
+            Ok(mode) => mode,
+            Err(e) => {
+                log_error(&format!("Failed to enable raw mode: {}", e), context);
+                return;
+            }
+        };
 
-        let quit_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let quit_requested_clone = Arc::clone(&quit_requested);
+        let quit_requested_clone = Arc::new(AtomicBool::new(false));
+        let quit_requested_clone_thread = quit_requested_clone.clone();
 
         let key_thread = thread::spawn(move || {
-            while !quit_requested_clone.load(std::sync::atomic::Ordering::Relaxed) {
-                if event::poll(Duration::from_millis(100)).unwrap_or(false) {
-                    if let Ok(Event::Key(KeyEvent {
-                                             code: KeyCode::Char('q'),
-                                             modifiers,
-                                             ..
-                                         })) = event::read()
+            unsafe {
+                let stdin = GetStdHandle(STD_INPUT_HANDLE).unwrap();
+
+                while !quit_requested_clone_thread.load(Ordering::Relaxed) {
+                    let mut events_available = 0u32;
+
+                    if PeekConsoleInputW(stdin, &mut [] as &mut [INPUT_RECORD], &mut events_available).is_ok()
+                        && events_available > 0
                     {
-                        if modifiers == event::KeyModifiers::CONTROL {
-                            quit_requested_clone.store(true, std::sync::atomic::Ordering::Relaxed);
-                            break;
+                        let mut input_record = [INPUT_RECORD::default()];
+                        let mut events_read = 0u32;
+
+                        if ReadConsoleInputW(stdin, &mut input_record, &mut events_read).is_ok()
+                            && events_read > 0
+                        {
+                            let record = &input_record[0];
+
+                            if record.EventType == KEY_EVENT as u16 {
+                                let key_event = record.Event.KeyEvent;
+
+                                if key_event.bKeyDown.as_bool()
+                                    && key_event.wVirtualKeyCode == VK_Q.0
+                                    && (key_event.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0
+                                {
+                                    quit_requested_clone_thread.store(true, Ordering::Relaxed);
+                                    break;
+                                }
+                            }
                         }
                     }
+
+                    thread::sleep(Duration::from_millis(100));
                 }
             }
         });
 
-        while !quit_requested.load(std::sync::atomic::Ordering::Relaxed) {
+        while !quit_requested_clone.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_millis(100));
         }
 
@@ -188,7 +213,7 @@ impl Menu {
             log_error(&format!("Failed to join key thread: {:?}", e), context);
         }
 
-        if let Err(e) = disable_raw_mode() {
+        if let Err(e) = Self::disable_raw_mode(original_mode) {
             log_error(&format!("Failed to disable raw mode: {}", e), context);
         }
     }
@@ -338,6 +363,38 @@ impl Menu {
         }
 
         let _ = io::stdout().flush();
+    }
+
+    fn enable_raw_mode() -> Result<CONSOLE_MODE, String> {
+        unsafe {
+            let stdin = GetStdHandle(STD_INPUT_HANDLE)
+                .map_err(|e| format!("Failed to get stdin handle: {:?}", e))?;
+
+            let mut original_mode = CONSOLE_MODE(0);
+            GetConsoleMode(stdin, &mut original_mode)
+                .map_err(|e| format!("Failed to get console mode: {:?}", e))?;
+
+            let raw_mode = CONSOLE_MODE(
+                original_mode.0 & !(ENABLE_LINE_INPUT.0 | ENABLE_ECHO_INPUT.0 | ENABLE_PROCESSED_INPUT.0)
+            );
+
+            SetConsoleMode(stdin, raw_mode)
+                .map_err(|e| format!("Failed to set console mode: {:?}", e))?;
+
+            Ok(original_mode)
+        }
+    }
+
+    fn disable_raw_mode(original_mode: CONSOLE_MODE) -> Result<(), String> {
+        unsafe {
+            let stdin = GetStdHandle(STD_INPUT_HANDLE)
+                .map_err(|e| format!("Failed to get stdin handle: {:?}", e))?;
+
+            SetConsoleMode(stdin, original_mode)
+                .map_err(|e| format!("Failed to restore console mode: {:?}", e))?;
+
+            Ok(())
+        }
     }
 
     fn apply_settings(&mut self) {
@@ -993,61 +1050,96 @@ impl Menu {
             return;
         }
 
-        if let Err(e) = enable_raw_mode() {
-            log_error(&format!("Failed to enable raw mode: {}", e), context);
-            return;
-        }
+        unsafe {
+            let stdin = match GetStdHandle(STD_INPUT_HANDLE) {
+                Ok(handle) => handle,
+                Err(e) => {
+                    log_error(&format!("Failed to get stdin handle: {:?}", e), context);
+                    return;
+                }
+            };
 
-        let start_time = Instant::now();
-        let timeout = Duration::from_secs(30);
-        let mut input_received = false;
+            let mut original_mode = CONSOLE_MODE(0);
+            if GetConsoleMode(stdin, &mut original_mode).is_err() {
+                log_error("Failed to get console mode", context);
+                return;
+            }
 
-        while start_time.elapsed() < timeout && !input_received {
-            if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
-                if let KeyCode::Char(c) = code {
-                    if c.is_ascii_alphabetic() {
-                        let virtual_key = c.to_ascii_uppercase() as i32;
+            let raw_mode = CONSOLE_MODE(
+                original_mode.0 & !(ENABLE_LINE_INPUT.0 | ENABLE_ECHO_INPUT.0 | ENABLE_PROCESSED_INPUT.0)
+            );
 
-                        self.toggle_key = virtual_key;
-                        self.settings.toggle_key = self.toggle_key;
+            if SetConsoleMode(stdin, raw_mode).is_err() {
+                log_error("Failed to enable raw mode", context);
+                return;
+            }
 
-                        if let Err(e) = self.settings.save() {
-                            log_error(&format!("Failed to save settings: {}", e), context);
-                            println!("\nFailed to save settings: {}", e);
-                        } else {
-                            println!(
-                                "\nHotkey successfully set to: {}",
-                                Self::get_key_name(virtual_key)
-                            );
-                            log_info(
-                                &format!("Keyboard hotkey set to: 0x{:02X}", virtual_key),
-                                context,
-                            );
-                            println!(
-                                "To change the hotkey, return to the main menu and configure again."
-                            );
+            let start_time = Instant::now();
+            let timeout = Duration::from_secs(30);
+            let mut input_received = false;
+
+            while start_time.elapsed() < timeout && !input_received {
+                let mut input_record = [INPUT_RECORD::default()];
+                let mut events_read = 0u32;
+
+                if ReadConsoleInputW(stdin, &mut input_record, &mut events_read).is_ok()
+                    && events_read > 0
+                {
+                    let record = &input_record[0];
+
+                    if record.EventType == KEY_EVENT as u16 {
+                        let key_event = record.Event.KeyEvent;
+
+                        if key_event.bKeyDown.as_bool() {
+                            let char_code = key_event.uChar.UnicodeChar as u8 as char;
+
+                            if char_code.is_ascii_alphabetic() {
+                                let virtual_key = char_code.to_ascii_uppercase() as i32;
+
+                                self.toggle_key = virtual_key;
+                                self.settings.toggle_key = self.toggle_key;
+
+                                if let Err(e) = self.settings.save() {
+                                    log_error(&format!("Failed to save settings: {}", e), context);
+                                    println!("\nFailed to save settings: {}", e);
+                                } else {
+                                    println!(
+                                        "\nHotkey successfully set to: {}",
+                                        Self::get_key_name(virtual_key)
+                                    );
+                                    log_info(
+                                        &format!("Keyboard hotkey set to: 0x{:02X}", virtual_key),
+                                        context,
+                                    );
+                                    println!(
+                                        "To change the hotkey, return to the main menu and configure again."
+                                    );
+                                }
+                                input_received = true;
+                            } else if char_code != '\0' {
+                                println!("\nInvalid key! Please press a letter key (A-Z)...");
+                                thread::sleep(Duration::from_secs(2));
+                            }
                         }
-                        input_received = true;
-                    } else {
-                        println!("\nInvalid key! Please press a letter key (A-Z)...");
-                        thread::sleep(Duration::from_secs(2));
                     }
+                } else {
+                    thread::sleep(Duration::from_millis(50));
                 }
             }
+
+            let _ = SetConsoleMode(stdin, original_mode);
+
+            if !input_received {
+                println!(
+                    "\nTimeout reached! No key was pressed within {} seconds.",
+                    timeout.as_secs()
+                );
+            }
+
+            println!("Press Enter to continue...");
+            let mut _input = String::new();
+            let _ = io::stdin().read_line(&mut _input);
         }
-
-        let _ = disable_raw_mode();
-
-        if !input_received {
-            println!(
-                "\nTimeout reached! No key was pressed within {} seconds.",
-                timeout.as_secs()
-            );
-        }
-
-        println!("Press Enter to continue...");
-        let mut _input = String::new();
-        let _ = io::stdin().read_line(&mut _input);
     }
 
     fn configure_mouse_hotkey(&mut self) {
@@ -1696,67 +1788,102 @@ impl Menu {
             return;
         }
 
-        if let Err(e) = enable_raw_mode() {
-            log_error(&format!("Failed to enable raw mode: {}", e), &context);
-            return;
-        }
+        unsafe {
+            let stdin = match GetStdHandle(STD_INPUT_HANDLE) {
+                Ok(handle) => handle,
+                Err(e) => {
+                    log_error(&format!("Failed to get stdin handle: {:?}", e), &context);
+                    return;
+                }
+            };
 
-        let start_time = Instant::now();
-        let timeout = Duration::from_secs(30);
-        let mut input_received = false;
+            let mut original_mode = CONSOLE_MODE(0);
+            if GetConsoleMode(stdin, &mut original_mode).is_err() {
+                log_error("Failed to get console mode", &context);
+                return;
+            }
 
-        while start_time.elapsed() < timeout && !input_received {
-            if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
-                if let KeyCode::Char(c) = code {
-                    if c.is_ascii_alphabetic() {
-                        let virtual_key = c.to_ascii_uppercase() as i32;
+            let raw_mode = CONSOLE_MODE(
+                original_mode.0 & !(ENABLE_LINE_INPUT.0 | ENABLE_ECHO_INPUT.0 | ENABLE_PROCESSED_INPUT.0)
+            );
 
-                        if is_left {
-                            self.left_click_hotkey = virtual_key;
-                            self.settings.left_click_hotkey = virtual_key;
-                        } else {
-                            self.right_click_hotkey = virtual_key;
-                            self.settings.right_click_hotkey = virtual_key;
+            if SetConsoleMode(stdin, raw_mode).is_err() {
+                log_error("Failed to enable raw mode", &context);
+                return;
+            }
+
+            let start_time = Instant::now();
+            let timeout = Duration::from_secs(30);
+            let mut input_received = false;
+
+            while start_time.elapsed() < timeout && !input_received {
+                let mut input_record = [INPUT_RECORD::default()];
+                let mut events_read = 0u32;
+
+                if ReadConsoleInputW(stdin, &mut input_record, &mut events_read).is_ok()
+                    && events_read > 0
+                {
+                    let record = &input_record[0];
+
+                    if record.EventType == KEY_EVENT as u16 {
+                        let key_event = record.Event.KeyEvent;
+
+                        if key_event.bKeyDown.as_bool() {
+                            let char_code = key_event.uChar.UnicodeChar as u8 as char;
+
+                            if char_code.is_ascii_alphabetic() {
+                                let virtual_key = char_code.to_ascii_uppercase() as i32;
+
+                                if is_left {
+                                    self.left_click_hotkey = virtual_key;
+                                    self.settings.left_click_hotkey = virtual_key;
+                                } else {
+                                    self.right_click_hotkey = virtual_key;
+                                    self.settings.right_click_hotkey = virtual_key;
+                                }
+
+                                if let Err(e) = self.settings.save() {
+                                    log_error(&format!("Failed to save settings: {}", e), &context);
+                                    println!("\nFailed to save settings: {}", e);
+                                } else {
+                                    println!(
+                                        "\n{} Hotkey successfully set to: {}",
+                                        click_type,
+                                        Self::get_key_name(virtual_key)
+                                    );
+                                    log_info(
+                                        &format!(
+                                            "{} keyboard hotkey set to: 0x{:02X}",
+                                            click_type, virtual_key
+                                        ),
+                                        &context,
+                                    );
+                                }
+                                input_received = true;
+                            } else if char_code != '\0' {
+                                println!("\nInvalid key! Please press a letter key (A-Z)...");
+                                thread::sleep(Duration::from_secs(2));
+                            }
                         }
-
-                        if let Err(e) = self.settings.save() {
-                            log_error(&format!("Failed to save settings: {}", e), &context);
-                            println!("\nFailed to save settings: {}", e);
-                        } else {
-                            println!(
-                                "\n{} Hotkey successfully set to: {}",
-                                click_type,
-                                Self::get_key_name(virtual_key)
-                            );
-                            log_info(
-                                &format!(
-                                    "{} keyboard hotkey set to: 0x{:02X}",
-                                    click_type, virtual_key
-                                ),
-                                &context,
-                            );
-                        }
-                        input_received = true;
-                    } else {
-                        println!("\nInvalid key! Please press a letter key (A-Z)...");
-                        thread::sleep(Duration::from_secs(2));
                     }
+                } else {
+                    thread::sleep(Duration::from_millis(50));
                 }
             }
+
+            let _ = SetConsoleMode(stdin, original_mode);
+
+            if !input_received {
+                println!(
+                    "\nTimeout reached! No key was pressed within {} seconds.",
+                    timeout.as_secs()
+                );
+            }
+
+            println!("Press Enter to continue...");
+            let mut _input = String::new();
+            let _ = io::stdin().read_line(&mut _input);
         }
-
-        let _ = disable_raw_mode();
-
-        if !input_received {
-            println!(
-                "\nTimeout reached! No key was pressed within {} seconds.",
-                timeout.as_secs()
-            );
-        }
-
-        println!("Press Enter to continue...");
-        let mut _input = String::new();
-        let _ = io::stdin().read_line(&mut _input);
     }
 
     fn configure_individual_mouse_hotkey(&mut self, is_left: bool) {
