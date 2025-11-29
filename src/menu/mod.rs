@@ -153,14 +153,6 @@ impl Menu {
     fn run_main_loop(&self) {
         let context = "Menu::run_main_loop";
 
-        let original_mode = match Self::enable_raw_mode() {
-            Ok(mode) => mode,
-            Err(e) => {
-                log_error(&format!("Failed to enable raw mode: {}", e), context);
-                return;
-            }
-        };
-
         let quit_requested_clone = Arc::new(AtomicBool::new(false));
         let quit_requested_clone_thread = quit_requested_clone.clone();
 
@@ -169,14 +161,13 @@ impl Menu {
                 let stdin = GetStdHandle(STD_INPUT_HANDLE).unwrap();
 
                 while !quit_requested_clone_thread.load(Ordering::Relaxed) {
-                    let mut events_available = 0u32;
+                    let mut input_record = [INPUT_RECORD::default()];
+                    let mut events_read = 0u32;
 
-                    if PeekConsoleInputW(stdin, &mut [] as &mut [INPUT_RECORD], &mut events_available).is_ok()
+                    let mut events_available = 0u32;
+                    if PeekConsoleInputW(stdin, std::slice::from_mut(&mut INPUT_RECORD::default()), &mut events_available).is_ok()
                         && events_available > 0
                     {
-                        let mut input_record = [INPUT_RECORD::default()];
-                        let mut events_read = 0u32;
-
                         if ReadConsoleInputW(stdin, &mut input_record, &mut events_read).is_ok()
                             && events_read > 0
                         {
@@ -185,18 +176,19 @@ impl Menu {
                             if record.EventType == KEY_EVENT as u16 {
                                 let key_event = record.Event.KeyEvent;
 
-                                if key_event.bKeyDown.as_bool()
-                                    && key_event.wVirtualKeyCode == VK_Q.0
-                                    && (key_event.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0
-                                {
-                                    quit_requested_clone_thread.store(true, Ordering::Relaxed);
-                                    break;
+                                if key_event.bKeyDown.as_bool() {
+                                    let ctrl_pressed = (key_event.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
+
+                                    if key_event.wVirtualKeyCode == VK_Q.0 && ctrl_pressed {
+                                        quit_requested_clone_thread.store(true, Ordering::Relaxed);
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
 
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(Duration::from_millis(50));
                 }
             }
         });
@@ -211,10 +203,6 @@ impl Menu {
 
         if let Err(e) = key_thread.join() {
             log_error(&format!("Failed to join key thread: {:?}", e), context);
-        }
-
-        if let Err(e) = Self::disable_raw_mode(original_mode) {
-            log_error(&format!("Failed to disable raw mode: {}", e), context);
         }
     }
 
@@ -363,38 +351,6 @@ impl Menu {
         }
 
         let _ = io::stdout().flush();
-    }
-
-    fn enable_raw_mode() -> Result<CONSOLE_MODE, String> {
-        unsafe {
-            let stdin = GetStdHandle(STD_INPUT_HANDLE)
-                .map_err(|e| format!("Failed to get stdin handle: {:?}", e))?;
-
-            let mut original_mode = CONSOLE_MODE(0);
-            GetConsoleMode(stdin, &mut original_mode)
-                .map_err(|e| format!("Failed to get console mode: {:?}", e))?;
-
-            let raw_mode = CONSOLE_MODE(
-                original_mode.0 & !(ENABLE_LINE_INPUT.0 | ENABLE_ECHO_INPUT.0 | ENABLE_PROCESSED_INPUT.0)
-            );
-
-            SetConsoleMode(stdin, raw_mode)
-                .map_err(|e| format!("Failed to set console mode: {:?}", e))?;
-
-            Ok(original_mode)
-        }
-    }
-
-    fn disable_raw_mode(original_mode: CONSOLE_MODE) -> Result<(), String> {
-        unsafe {
-            let stdin = GetStdHandle(STD_INPUT_HANDLE)
-                .map_err(|e| format!("Failed to get stdin handle: {:?}", e))?;
-
-            SetConsoleMode(stdin, original_mode)
-                .map_err(|e| format!("Failed to restore console mode: {:?}", e))?;
-
-            Ok(())
-        }
     }
 
     fn apply_settings(&mut self) {
