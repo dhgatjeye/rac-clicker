@@ -86,57 +86,151 @@ impl UpdateInstaller {
         let new_target_path = current_dir.join(new_exe_name);
         let new_target_str = new_target_path.to_str()
             .ok_or_else(|| RacError::UpdateError("Invalid new target path".to_string()))?;
-        
+
         let script = format!(r#"
-# RAC Auto-Update Script
-# Wait for main process to exit
-Start-Sleep -Seconds 2
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-$maxRetries = 10
-$retryCount = 0
-
-# Wait until file is not locked and copy to new versioned filename
-while ($retryCount -lt $maxRetries) {{
-    try {{
-        # Copy to new versioned filename
-        Copy-Item -Path "{new_exe}" -Destination "{new_target}" -Force
-        break
-    }}
-    catch {{
-        Write-Host "Waiting for file lock to release... ($retryCount/$maxRetries)"
-        Start-Sleep -Seconds 1
-        $retryCount++
-    }}
+$Config = @{{
+    NewExePath      = "{new_exe}"
+    CurrentExePath  = "{current_exe}"
+    BackupPath      = "{backup}"
+    NewTargetPath   = "{new_target}"
+    MaxRetries      = 10
+    RetryDelay      = 1
+    InitialDelay    = 2
 }}
 
-if ($retryCount -ge $maxRetries) {{
-    # Rollback on failure
-    Write-Host "Update failed! Rolling back..."
-    Copy-Item -Path "{backup}" -Destination "{current_exe}" -Force
-    Write-Host "Rollback complete. Press any key to exit..."
+function Write-Log {{
+    param(
+        [string]$Message,
+        [ValidateSet('Info', 'Warning', 'Error', 'Success')]
+        [string]$Level = 'Info'
+    )
+
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $colors = @{{
+        'Info'    = 'White'
+        'Warning' = 'Yellow'
+        'Error'   = 'Red'
+        'Success' = 'Green'
+    }}
+
+    Write-Host "[$timestamp] [$Level] $Message" -ForegroundColor $colors[$Level]
+}}
+
+function Invoke-Rollback {{
+    param([string]$Reason)
+
+    Write-Log "Update failed: $Reason" -Level Error
+    Write-Log "Initiating rollback..." -Level Warning
+
+    try {{
+        if (Test-Path $Config.BackupPath) {{
+            Copy-Item -Path $Config.BackupPath -Destination $Config.CurrentExePath -Force
+            Write-Log "Rollback completed successfully" -Level Success
+        }} else {{
+            Write-Log "Backup file not found. Manual intervention required." -Level Error
+        }}
+    }}
+    catch {{
+        Write-Log "Rollback failed: $_" -Level Error
+    }}
+
+    Write-Host "`nPress any key to exit..." -ForegroundColor Yellow
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     exit 1
 }}
 
-# If old exe has different name than new one, remove old exe
-if ("{current_exe}" -ne "{new_target}") {{
-    Remove-Item -Path "{current_exe}" -Force -ErrorAction SilentlyContinue
+function Remove-UpdateFiles {{
+    $filesToClean = @(
+        $Config.NewExePath,
+        $Config.BackupPath,
+        $PSCommandPath
+    )
+
+    foreach ($file in $filesToClean) {{
+        if (Test-Path $file) {{
+            try {{
+                Remove-Item -Path $file -Force -ErrorAction SilentlyContinue
+                Write-Log "Cleaned up: $file" -Level Info
+            }}
+            catch {{
+                Write-Log "Could not remove: $file" -Level Warning
+            }}
+        }}
+    }}
 }}
 
-# Cleanup downloaded temp file
-Remove-Item -Path "{new_exe}" -Force -ErrorAction SilentlyContinue
-Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue
+try {{
+    Write-Log "RAC Auto-Update Process Started" -Level Info
+    Write-Log "Waiting for main process to exit..." -Level Info
+    Start-Sleep -Seconds $Config.InitialDelay
 
-# Restart application with new versioned filename
-Start-Process -FilePath "{new_target}"
+    # Validate source file exists
+    if (-not (Test-Path $Config.NewExePath)) {{
+        Invoke-Rollback "Source update file not found: $($Config.NewExePath)"
+    }}
 
-Write-Host "Update complete!"
-exit 0
-"#, 
-            new_exe = new_exe_str, 
-            current_exe = current_exe_str, 
-            backup = backup_str,
-            new_target = new_target_str
+    # Attempt to copy new version
+    Write-Log "Installing new version..." -Level Info
+    $retryCount = 0
+    $success = $false
+
+    while ($retryCount -lt $Config.MaxRetries) {{
+        try {{
+            Copy-Item -Path $Config.NewExePath -Destination $Config.NewTargetPath -Force
+            $success = $true
+            Write-Log "New version installed successfully" -Level Success
+            break
+        }}
+        catch {{
+            $retryCount++
+            if ($retryCount -lt $Config.MaxRetries) {{
+                Write-Log "Retry $retryCount/$($Config.MaxRetries): Waiting for file lock to release..." -Level Warning
+                Start-Sleep -Seconds $Config.RetryDelay
+            }}
+        }}
+    }}
+
+    if (-not $success) {{
+        Invoke-Rollback "Failed to install new version after $($Config.MaxRetries) attempts"
+    }}
+
+    if ($Config.CurrentExePath -ne $Config.NewTargetPath) {{
+        if (Test-Path $Config.CurrentExePath) {{
+            try {{
+                Remove-Item -Path $Config.CurrentExePath -Force
+                Write-Log "Removed old executable: $($Config.CurrentExePath)" -Level Info
+            }}
+            catch {{
+                Write-Log "Could not remove old executable (non-critical): $_" -Level Warning
+            }}
+        }}
+    }}
+
+    Write-Log "Cleaning up temporary files..." -Level Info
+    Remove-UpdateFiles
+
+    if (-not (Test-Path $Config.NewTargetPath)) {{
+        throw "New executable not found at expected location: $($Config.NewTargetPath)"
+    }}
+
+    Write-Log "Restarting application..." -Level Info
+    Start-Process -FilePath $Config.NewTargetPath
+
+    Write-Log "Update completed successfully!" -Level Success
+    Start-Sleep -Seconds 2
+    exit 0
+}}
+catch {{
+    Invoke-Rollback $_.Exception.Message
+}}
+"#,
+                             new_exe = new_exe_str,
+                             current_exe = current_exe_str,
+                             backup = backup_str,
+                             new_target = new_target_str
         );
 
         fs::write(&script_path, script)
