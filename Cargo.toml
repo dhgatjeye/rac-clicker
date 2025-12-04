@@ -1,14 +1,20 @@
 [package]
 name = "rac-clicker"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["RAC"]
 edition = "2024"
 description = "Short for Robust Auto Click for CraftRise, Made By LuaCodder"
 repository = "https://github.com/dhgatjeye/rac-clicker"
+license = "GPL-3"
+readme = "README.md"
+keywords = ["auto-clicker", "minecraft", "craftrise", "sonoyuncu","gaming"]
 
 [profile.release]
+opt-level = 3
 debug = false
 debug-assertions = false
+lto = true
+panic = 'abort'
 rpath = false
 strip = true
 codegen-units = 1
@@ -36,9 +42,12 @@ features = [
     "Win32_System_Com",
     "Win32_Foundation",
     "Win32_Security",
+    "Win32_Security_Cryptography",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_Networking_WinHttp",
+    "Win32_Networking_WinInet",
     "Wdk",
     "Wdk_System_SystemServices",
 ]

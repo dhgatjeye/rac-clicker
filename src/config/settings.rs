@@ -1,123 +1,100 @@
-use crate::config::constants::defaults;
-use crate::helper::windows_paths::get_local_appdata;
-use crate::logger::logger::{log_error, log_info};
+use crate::core::{RacResult, RacError, ToggleMode, ClickMode, ServerType};
 use serde::{Deserialize, Serialize};
-use std::io;
 use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
 
-#[derive(Default, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
-    pub target_process: String,
-    pub toggle_key: i32,
-    pub left_click_hotkey: i32,
-    pub right_click_hotkey: i32,
-    pub hotkey_hold_mode: bool,
-
-    pub click_mode: String,
-    pub left_max_cps: u8,
-    pub right_max_cps: u8,
-
-    pub left_game_mode: String,
-    pub right_game_mode: String,
-    pub post_mode: String,
-    pub burst_mode: bool,
+    pub active_server: ServerType,
+    pub toggle_mode: ToggleMode,
+    pub click_mode: ClickMode,
+    pub toggle_hotkey: i32,
+    pub left_hotkey: i32,
+    pub right_hotkey: i32,
+    pub left_cps_override: u8,
+    pub right_cps_override: u8,
 }
 
-impl Settings {
-    pub fn default_with_toggle_key(toggle_key: i32) -> Self {
+impl Default for Settings {
+    fn default() -> Self {
         Self {
-            target_process: defaults::TARGET_PROCESS.to_string(),
-            toggle_key,
-            left_click_hotkey: defaults::LEFT_CLICK_HOTKEY,
-            right_click_hotkey: defaults::RIGHT_CLICK_HOTKEY,
-            hotkey_hold_mode: defaults::HOTKEY_HOLD_MODE,
-            click_mode: defaults::CLICK_MODE.to_string(),
-            left_max_cps: defaults::LEFT_MAX_CPS,
-            right_max_cps: defaults::RIGHT_MAX_CPS,
-            left_game_mode: defaults::LEFT_GAME_MODE.to_string(),
-            right_game_mode: defaults::RIGHT_GAME_MODE.to_string(),
-            post_mode: defaults::POST_MODE.to_string(),
-            burst_mode: defaults::BURST_MODE,
+            active_server: ServerType::Craftrise,
+            toggle_mode: ToggleMode::MouseHold,
+            click_mode: ClickMode::Both,
+            toggle_hotkey: 0,
+            left_hotkey: 0,
+            right_hotkey: 0,
+            left_cps_override: 0,
+            right_cps_override: 0,
         }
     }
+}
 
-    pub fn default() -> Self {
-        Self::default_with_toggle_key(defaults::TOGGLE_KEY)
+pub struct SettingsManager {
+    settings_path: PathBuf,
+}
+
+impl SettingsManager {
+    pub fn new() -> RacResult<Self> {
+        let settings_path = Self::get_settings_path()?;
+        Ok(Self { settings_path })
     }
 
-    fn get_settings_path() -> io::Result<PathBuf> {
-        let local_app_data = get_local_appdata()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find AppData/Local directory"))?;
+    fn get_settings_path() -> RacResult<PathBuf> {
+        let local_appdata = std::env::var("LOCALAPPDATA")
+            .map_err(|e| RacError::ConfigError(format!("Cannot find LOCALAPPDATA: {}", e)))?;
 
-        let settings_dir = local_app_data.join(defaults::RAC_DIR);
-        if !settings_dir.exists() {
-            std::fs::create_dir_all(&settings_dir)?;
+        let rac_dir = PathBuf::from(local_appdata).join("RAC");
+
+        if !rac_dir.exists() {
+            std::fs::create_dir_all(&rac_dir)?;
         }
 
-        Ok(settings_dir.join("settings.json"))
+        Ok(rac_dir.join("settings_v2.json"))
     }
 
-    pub fn save(&self) -> io::Result<()> {
-        let context = "Settings::save";
-        match Self::get_settings_path() {
-            Ok(settings_path) => {
-                match serde_json::to_string_pretty(self) {
-                    Ok(json) => {
-                        if let Err(e) = std::fs::write(&settings_path, json) {
-                            log_error(&format!("Failed to write settings file: {}", e), context);
-                            return Err(e);
-                        }
-                        Ok(())
-                    }
-                    Err(e) => {
-                        log_error(&format!("Failed to serialize settings: {}", e), context);
-                        Err(io::Error::new(io::ErrorKind::Other, e))
-                    }
-                }
-            }
-            Err(e) => {
-                log_error(&format!("Failed to get settings path: {}", e), context);
-                Err(e)
-            }
+    pub fn load(&self) -> RacResult<Settings> {
+        if !self.settings_path.exists() {
+            return Ok(Settings::default());
         }
+
+        let mut file = OpenOptions::new()
+            .read(true)
+            .open(&self.settings_path)?;
+
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+
+        let settings: Settings = serde_json::from_str(&contents)
+            .unwrap_or_else(|e| {
+                eprintln!("Warning: Failed to parse settings file: {}", e);
+                eprintln!("Using default settings...");
+                Settings::default()
+            });
+
+        Ok(settings)
     }
 
-    pub fn load() -> io::Result<Self> {
-        let context = "Settings::load";
-        match Self::get_settings_path() {
-            Ok(settings_path) => {
-                if !settings_path.exists() {
-                    let default_settings = Settings::default();
-                    return Ok(default_settings);
-                }
+    pub fn save(&self, settings: &Settings) -> RacResult<()> {
+        let json = serde_json::to_string_pretty(settings)?;
 
-                let json = match std::fs::read_to_string(&settings_path) {
-                    Ok(json) => json,
-                    Err(e) => {
-                        log_error(&format!("Failed to read settings file: {}", e), context);
-                        return Err(e);
-                    }
-                };
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&self.settings_path)?;
 
-                match serde_json::from_str(&json) {
-                    Ok(settings) => Ok(settings),
-                    Err(e) => {
-                        log_error(&format!("Failed to parse settings JSON: {}", e), context);
-                        log_info("Attempting to recover with partial settings", context);
+        file.write_all(json.as_bytes())?;
 
-                        let default_settings = Settings::default();
-                        let partial: serde_json::Value = serde_json::from_str(&json).unwrap_or(serde_json::Value::Null);
-                        let recovered_settings = serde_json::from_value(partial).unwrap_or(default_settings);
+        file.flush()?;
 
-                        log_info("Recovered partial settings, using defaults for missing fields", context);
-                        Ok(recovered_settings)
-                    }
-                }
-            }
-            Err(e) => {
-                log_error(&format!("Failed to get settings path: {}", e), context);
-                Err(e)
-            }
-        }
+        file.sync_all()?;
+
+        Ok(())
+    }
+
+    pub fn path(&self) -> &PathBuf {
+        &self.settings_path
     }
 }
