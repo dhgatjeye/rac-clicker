@@ -12,7 +12,7 @@ impl ClickExecutor {
     pub fn new() -> Self {
         Self
     }
-    
+
     pub fn execute_click(
         &self,
         hwnd: HWND,

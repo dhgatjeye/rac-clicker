@@ -6,41 +6,50 @@ pub struct CpsConfigScreen;
 
 impl CpsConfigScreen {
     pub fn show(profile: &mut ConfigProfile, settings_manager: &mut SettingsManager) -> RacResult<()> {
-        ScreenUtils::clear_console();
-        println!("╔════════════════════════════════════════════╗");
-        println!("║         CONFIGURE CPS SETTINGS             ║");
-        println!("╚════════════════════════════════════════════╝");
-        println!();
+        loop {
+            ScreenUtils::clear_console();
+            println!("╔════════════════════════════════════════════╗");
+            println!("║         CONFIGURE CPS SETTINGS             ║");
+            println!("╚════════════════════════════════════════════╝");
+            println!();
 
-        let server = profile.server_registry.get_active()?;
-        println!("Server defaults:");
-        println!("  Left CPS:  {}", server.left_click.max_cps);
-        println!("  Right CPS: {}", server.right_click.max_cps);
-        println!();
-        println!("Current overrides:");
-        println!("  Left:  {} (0 = use server default)", profile.settings.left_cps_override);
-        println!("  Right: {} (0 = use server default)", profile.settings.right_cps_override);
-        println!();
-        println!("1. Set Left Click CPS");
-        println!("2. Set Right Click CPS");
-        println!("3. Reset to Server Defaults");
-        println!("4. Back to Main Menu");
-        println!();
+            let server = profile.server_registry.get_active()?;
+            println!("Server defaults:");
+            println!("  Left CPS:  {}", server.left_click.max_cps);
+            println!("  Right CPS: {}", server.right_click.max_cps);
+            println!();
+            println!("Current overrides:");
+            println!("  Left:  {} (0 = use server default)", profile.settings.left_cps_override);
+            println!("  Right: {} (0 = use server default)", profile.settings.right_cps_override);
+            println!();
+            println!("1. Set Left Click CPS");
+            println!("2. Set Right Click CPS");
+            println!("3. Reset to Server Defaults");
+            println!("4. Back to Main Menu");
+            println!();
 
-        let input = ScreenUtils::prompt("Select option: ")?;
+            let input = ScreenUtils::prompt("Select option: ")?;
 
-        match input.trim() {
-            "1" => Self::configure_left_cps(profile, settings_manager)?,
-            "2" => Self::configure_right_cps(profile, settings_manager)?,
-            "3" => Self::reset_to_defaults(profile, settings_manager)?,
-            "4" => return Ok(()),
-            _ => {
-                println!("\n✗ Invalid option!");
+            match input.trim() {
+                "1" => {
+                    Self::configure_left_cps(profile, settings_manager)?;
+                    ScreenUtils::press_enter_to_continue();
+                }
+                "2" => {
+                    Self::configure_right_cps(profile, settings_manager)?;
+                    ScreenUtils::press_enter_to_continue();
+                }
+                "3" => {
+                    Self::reset_to_defaults(profile, settings_manager)?;
+                    ScreenUtils::press_enter_to_continue();
+                }
+                "4" => return Ok(()),
+                _ => {
+                    println!("\n✗ Invalid option!");
+                    ScreenUtils::press_enter_to_continue();
+                }
             }
         }
-
-        ScreenUtils::press_enter_to_continue();
-        Ok(())
     }
 
     fn configure_left_cps(profile: &mut ConfigProfile, settings_manager: &mut SettingsManager) -> RacResult<()> {

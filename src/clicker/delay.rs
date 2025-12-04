@@ -26,11 +26,7 @@ impl DelayCalculator {
             combo_counter: 0,
         })
     }
-
-    pub fn set_pattern(&mut self, pattern: ClickPattern) {
-        self.pattern = pattern;
-    }
-
+    
     pub fn next_delay(&mut self) -> Duration {
         let mut rng = rand::rng();
 

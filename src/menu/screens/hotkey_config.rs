@@ -7,40 +7,52 @@ pub struct HotkeyConfigScreen;
 
 impl HotkeyConfigScreen {
     pub fn show(profile: &mut ConfigProfile, settings_manager: &mut SettingsManager) -> RacResult<()> {
-        ScreenUtils::clear_console();
-        println!("╔════════════════════════════════════════════╗");
-        println!("║         CONFIGURE HOTKEYS                  ║");
-        println!("╚════════════════════════════════════════════╝");
-        println!();
-        println!("Current Hotkeys:");
-        println!("  Toggle: {} (optional)", HotkeyManager::key_name(profile.settings.toggle_hotkey));
-        println!("  Left:   {}", HotkeyManager::key_name(profile.settings.left_hotkey));
-        println!("  Right:  {}", HotkeyManager::key_name(profile.settings.right_hotkey));
-        println!();
-        println!("NOTE: Toggle hotkey is optional if Left/Right hotkeys are set.");
-        println!();
-        println!("1. Configure Toggle Hotkey (Optional)");
-        println!("2. Configure Left Click Hotkey");
-        println!("3. Configure Right Click Hotkey");
-        println!("4. Reset All Hotkeys");
-        println!("5. Back to Main Menu");
-        println!();
+        loop {
+            ScreenUtils::clear_console();
+            println!("╔════════════════════════════════════════════╗");
+            println!("║         CONFIGURE HOTKEYS                  ║");
+            println!("╚════════════════════════════════════════════╝");
+            println!();
+            println!("Current Hotkeys:");
+            println!("  Toggle: {} (optional)", HotkeyManager::key_name(profile.settings.toggle_hotkey));
+            println!("  Left:   {}", HotkeyManager::key_name(profile.settings.left_hotkey));
+            println!("  Right:  {}", HotkeyManager::key_name(profile.settings.right_hotkey));
+            println!();
+            println!("NOTE: Toggle hotkey is optional if Left/Right hotkeys are set.");
+            println!();
+            println!("1. Configure Toggle Hotkey (Optional)");
+            println!("2. Configure Left Click Hotkey");
+            println!("3. Configure Right Click Hotkey");
+            println!("4. Reset All Hotkeys");
+            println!("5. Back to Main Menu");
+            println!();
 
-        let input = ScreenUtils::prompt("Select option: ")?;
+            let input = ScreenUtils::prompt("Select option: ")?;
 
-        match input.trim() {
-            "1" => Self::configure_toggle_hotkey(profile, settings_manager)?,
-            "2" => Self::configure_left_hotkey(profile, settings_manager)?,
-            "3" => Self::configure_right_hotkey(profile, settings_manager)?,
-            "4" => Self::reset_all_hotkeys(profile, settings_manager)?,
-            "5" => return Ok(()),
-            _ => {
-                println!("\n✗ Invalid option!");
+            match input.trim() {
+                "1" => {
+                    Self::configure_toggle_hotkey(profile, settings_manager)?;
+                    ScreenUtils::press_enter_to_continue();
+                }
+                "2" => {
+                    Self::configure_left_hotkey(profile, settings_manager)?;
+                    ScreenUtils::press_enter_to_continue();
+                }
+                "3" => {
+                    Self::configure_right_hotkey(profile, settings_manager)?;
+                    ScreenUtils::press_enter_to_continue();
+                }
+                "4" => {
+                    Self::reset_all_hotkeys(profile, settings_manager)?;
+                    ScreenUtils::press_enter_to_continue();
+                }
+                "5" => return Ok(()),
+                _ => {
+                    println!("\n✗ Invalid option!");
+                    ScreenUtils::press_enter_to_continue();
+                }
             }
         }
-
-        ScreenUtils::press_enter_to_continue();
-        Ok(())
     }
 
     fn configure_toggle_hotkey(profile: &mut ConfigProfile, settings_manager: &mut SettingsManager) -> RacResult<()> {

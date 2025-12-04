@@ -28,10 +28,10 @@ impl ServerTiming for SonoyuncuTiming {
     fn first_hit_boost(&self) -> u8 {
         5  // 5% speed boost
     }
-    
-    /// 40ms penalty after button release (faster recovery)
+
+    /// 170ms penalty after button release
     fn release_penalty_ms(&self) -> u64 {
-        150
+        170
     }
     
     /// Left click: min=12, max=15, hard_limit=15

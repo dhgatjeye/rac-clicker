@@ -30,9 +30,9 @@ impl ServerTiming for CraftriseTiming {
         10  // 10% speed boost
     }
     
-    /// 50ms penalty after button release
+    /// 170ms penalty after button release
     fn release_penalty_ms(&self) -> u64 {
-        150
+        170
     }
     
     /// Left click: min=13, max=16, hard_limit=16
