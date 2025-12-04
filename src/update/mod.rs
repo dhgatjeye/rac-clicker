@@ -42,6 +42,11 @@ impl UpdateManager {
         progress_callback: Option<ProgressCallback>,
     ) -> RacResult<()> {
         println!("\nDownloading update v{}...", release.version);
+        
+        let version_str = release.version.to_string();
+        if !version_str.chars().all(|c| c.is_ascii_digit() || c == '.') {
+            return Err(RacError::UpdateError("Invalid version format".to_string()));
+        }
 
         let temp_dir = std::env::temp_dir().join("rac-update");
         if !temp_dir.exists() {
@@ -49,7 +54,12 @@ impl UpdateManager {
                 .map_err(|e| RacError::UpdateError(format!("Failed to create temp dir: {}", e)))?;
         }
 
-        let download_path = temp_dir.join(format!("rac-clicker-v{}.exe", release.version));
+        let download_path = temp_dir.join(format!("rac-clicker-v{}.exe", version_str));
+        
+        if !release.download_url.starts_with("https://github.com/") &&
+           !release.download_url.starts_with("https://objects.githubusercontent.com/") {
+            return Err(RacError::UpdateError("Invalid download URL: must be from GitHub".to_string()));
+        }
 
         println!("Downloading from: {}", release.download_url);
         let downloaded = self.downloader.download(

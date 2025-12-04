@@ -69,33 +69,52 @@ impl UpdateInstaller {
     ) -> RacResult<()> {
         let script_path = self.backup_dir.join("updater.ps1");
 
-        let current_exe_str = current_exe.to_str()
-            .ok_or_else(|| RacError::UpdateError("Invalid current exe path".to_string()))?;
-        let new_exe_str = new_exe.to_str()
-            .ok_or_else(|| RacError::UpdateError("Invalid new exe path".to_string()))?;
-        let backup_str = backup_path.to_str()
-            .ok_or_else(|| RacError::UpdateError("Invalid backup path".to_string()))?;
+        let validate_path = |path: &Path| -> RacResult<String> {
+            let path_str = path.to_str()
+                .ok_or_else(|| RacError::UpdateError("Invalid path encoding".to_string()))?;
 
+            if path_str.contains(|c: char| {
+                matches!(c, '"' | '\'' | '`' | ';' | '$' | '&' | '|' | '<' | '>' | '\n' | '\r')
+            }) {
+                return Err(RacError::UpdateError("Path contains invalid characters".to_string()));
+            }
+            
+            Ok(path_str.to_string())
+        };
+
+        let current_exe_str = validate_path(current_exe)?;
+        let new_exe_str = validate_path(new_exe)?;
+        let backup_str = validate_path(backup_path)?;
+        
         let new_exe_name = new_exe.file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or("rac-clicker.exe");
+            .ok_or_else(|| RacError::UpdateError("Invalid filename".to_string()))?;
+        
+        if !new_exe_name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) {
+            return Err(RacError::UpdateError("Filename contains invalid characters".to_string()));
+        }
+        
+        if !new_exe_name.ends_with(".exe") {
+            return Err(RacError::UpdateError("Invalid file extension".to_string()));
+        }
         
         let current_dir = current_exe.parent()
             .ok_or_else(|| RacError::UpdateError("Cannot get current exe directory".to_string()))?;
         
         let new_target_path = current_dir.join(new_exe_name);
-        let new_target_str = new_target_path.to_str()
-            .ok_or_else(|| RacError::UpdateError("Invalid new target path".to_string()))?;
+        let new_target_str = validate_path(&new_target_path)?;
+        
+        let escape_ps_single_quote = |s: &str| s.replace('\'', "''");
 
         let script = format!(r#"
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $Config = @{{
-    NewExePath      = "{new_exe}"
-    CurrentExePath  = "{current_exe}"
-    BackupPath      = "{backup}"
-    NewTargetPath   = "{new_target}"
+    NewExePath      = '{new_exe}'
+    CurrentExePath  = '{current_exe}'
+    BackupPath      = '{backup}'
+    NewTargetPath   = '{new_target}'
     MaxRetries      = 10
     RetryDelay      = 1
     InitialDelay    = 2
@@ -226,16 +245,25 @@ try {{
 catch {{
     Invoke-Rollback $_.Exception.Message
 }}
-"#, new_exe = new_exe_str, current_exe = current_exe_str, backup = backup_str, new_target = new_target_str);
+"#, 
+            new_exe = escape_ps_single_quote(&new_exe_str),
+            current_exe = escape_ps_single_quote(&current_exe_str),
+            backup = escape_ps_single_quote(&backup_str),
+            new_target = escape_ps_single_quote(&new_target_str)
+        );
 
         fs::write(&script_path, script)
             .map_err(|e| RacError::UpdateError(format!("Failed to write updater script: {}", e)))?;
+        
+        let script_path_str = script_path.to_str()
+            .ok_or_else(|| RacError::UpdateError("Invalid script path".to_string()))?;
         
         let result = Command::new("powershell.exe")
             .args(&[
                 "-WindowStyle", "Hidden",
                 "-ExecutionPolicy", "Bypass",
-                "-File", script_path.to_str().unwrap_or(""),
+                "-NoProfile", 
+                "-File", script_path_str,
             ])
             .spawn();
 

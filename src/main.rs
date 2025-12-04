@@ -234,92 +234,6 @@ fn check_single_instance() -> bool {
     }
 }
 
-fn bring_existing_instance_to_front() -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, SetForegroundWindow, ShowWindow,
-        SW_RESTORE, IsIconic
-    };
-    use windows::Win32::Foundation::{HWND, LPARAM};
-
-    unsafe {
-        let mut found_hwnd: HWND = HWND::default();
-
-        let _ = EnumWindows(
-            Some(enum_window_callback),
-            LPARAM(&mut found_hwnd as *mut HWND as isize),
-        );
-
-        if !found_hwnd.is_invalid() && found_hwnd != HWND::default() {
-            if IsIconic(found_hwnd).as_bool() {
-                let _ = ShowWindow(found_hwnd, SW_RESTORE);
-            }
-            let _ = SetForegroundWindow(found_hwnd);
-            return true;
-        }
-
-        false
-    }
-}
-
-unsafe extern "system" fn enum_window_callback(
-    hwnd: windows::Win32::Foundation::HWND,
-    lparam: windows::Win32::Foundation::LPARAM
-) -> windows::core::BOOL {
-    use windows::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindowVisible};
-    use windows::Win32::System::Threading::GetCurrentProcessId;
-
-    unsafe {
-        if !IsWindowVisible(hwnd).as_bool() {
-            return true.into();
-        }
-
-        let mut window_pid: u32 = 0;
-        GetWindowThreadProcessId(hwnd, Some(&mut window_pid));
-
-        let current_pid = GetCurrentProcessId();
-        if window_pid == current_pid {
-            return true.into();
-        }
-
-        let window_exe = get_process_path(window_pid);
-
-        let current_exe_name = std::env::current_exe()
-            .ok()
-            .and_then(|path| path.file_name().map(|n| n.to_string_lossy().to_string()))
-            .unwrap_or_else(|| "rac-clicker.exe".to_string());
-
-        if window_exe.contains(&current_exe_name) {
-            let result_ptr = lparam.0 as *mut windows::Win32::Foundation::HWND;
-            if !result_ptr.is_null() {
-                *result_ptr = hwnd;
-                return false.into();
-            }
-        }
-
-        true.into()
-    }
-}
-
-unsafe fn get_process_path(pid: u32) -> String {
-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ};
-    use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
-
-    unsafe {
-        let process = match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
-            Ok(p) => p,
-            Err(_) => return String::new(),
-        };
-
-        let mut path_buffer = [0u16; 260];
-        let len = GetModuleFileNameExW(Some(process), None, &mut path_buffer);
-
-        if len > 0 {
-            String::from_utf16_lossy(&path_buffer[..len as usize])
-        } else {
-            String::new()
-        }
-    }
-}
 
 fn check_and_update() {
     use std::io::{self, Write};
@@ -387,7 +301,7 @@ fn check_and_update() {
                                     let mb_current = current as f64 / 1024.0 / 1024.0;
                                     let mb_total = total as f64 / 1024.0 / 1024.0;
                                     print!("\rDownloading: {:.1}% ({:.2}/{:.2} MB)   ",
-                                        percent, mb_current, mb_total);
+                                           percent, mb_current, mb_total);
                                     io::stdout().flush().ok();
                                 }
                             });
@@ -438,24 +352,19 @@ fn check_and_update() {
 
 fn main() -> RacResult<()> {
     if !check_single_instance() {
-        if bring_existing_instance_to_front() {
-            std::process::exit(0);
-        } else {
-            unsafe {
-                use windows::Win32::System::Console::{GetStdHandle, FlushConsoleInputBuffer, STD_INPUT_HANDLE};
-                if let Ok(handle) = GetStdHandle(STD_INPUT_HANDLE) {
-                    let _ = FlushConsoleInputBuffer(handle);
-                }
+        unsafe {
+            use windows::Win32::System::Console::{GetStdHandle, FlushConsoleInputBuffer, STD_INPUT_HANDLE};
+            if let Ok(handle) = GetStdHandle(STD_INPUT_HANDLE) {
+                let _ = FlushConsoleInputBuffer(handle);
             }
-
-            eprintln!("✗ RAC v2 is already running!");
-            eprintln!("  (Couldn't find the window to bring to front)");
-            eprintln!("\nPress Enter to exit...");
-
-            let mut input = String::new();
-            let _ = std::io::stdin().read_line(&mut input);
-            std::process::exit(1);
         }
+
+        eprintln!("✗ RAC v2 is already running!");
+        eprintln!("\nPress Enter to exit...");
+
+        let mut input = String::new();
+        let _ = std::io::stdin().read_line(&mut input);
+        std::process::exit(1);
     }
 
     check_and_update();
