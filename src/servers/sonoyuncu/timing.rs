@@ -31,7 +31,7 @@ impl ServerTiming for SonoyuncuTiming {
     
     /// 40ms penalty after button release (faster recovery)
     fn release_penalty_ms(&self) -> u64 {
-        40
+        150
     }
     
     /// Left click: min=12, max=15, hard_limit=15
