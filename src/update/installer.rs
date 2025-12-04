@@ -141,6 +141,15 @@ function Write-Log {{
 function Invoke-Rollback {{
     param([string]$Reason)
 
+    Add-Type -Name Window -Namespace Console -MemberDefinition '
+    [DllImport("Kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, Int32 nCmdShow);
+    '
+    $consolePtr = [Console.Window]::GetConsoleWindow()
+    [Console.Window]::ShowWindow($consolePtr, 5) | Out-Null  # SW_SHOW = 5
+
     Write-Log "Update failed: $Reason" -Level Error
     Write-Log "Initiating rollback..." -Level Warning
 
@@ -164,7 +173,6 @@ function Invoke-Rollback {{
 function Remove-UpdateFiles {{
     $filesToClean = @(
         $Config.NewExePath,
-        $Config.BackupPath,
         $PSCommandPath
     )
 
@@ -269,7 +277,7 @@ catch {{
 
         match result {
             Ok(_) => {
-                std::process::exit(0);
+                Err(RacError::UpdateRestart)
             }
             Err(e) => Err(RacError::UpdateError(format!("Failed to launch updater: {}", e)))
         }
@@ -300,64 +308,5 @@ catch {{
         }
 
         Ok(())
-    }
-    
-    pub fn rollback_to_backup(&self) -> RacResult<PathBuf> {
-        let current_exe = env::current_exe()
-            .map_err(|e| RacError::UpdateError(format!("Cannot get current exe: {}", e)))?;
-        
-        let latest_backup = fs::read_dir(&self.backup_dir)
-            .map_err(|e| RacError::UpdateError(format!("Failed to read backups: {}", e)))?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry.path()
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|s| s.contains(".backup."))
-                    .unwrap_or(false)
-            })
-            .max_by_key(|entry| {
-                entry.metadata()
-                    .and_then(|m| m.modified())
-                    .ok()
-            })
-            .ok_or_else(|| RacError::UpdateError("No backup found".to_string()))?;
-
-        let backup_path = latest_backup.path();
-        
-        fs::copy(&backup_path, &current_exe)
-            .map_err(|e| RacError::UpdateError(format!("Failed to restore backup: {}", e)))?;
-
-        Ok(backup_path)
-    }
-
-    pub fn list_backups(&self) -> RacResult<Vec<PathBuf>> {
-        let mut backups: Vec<_> = fs::read_dir(&self.backup_dir)
-            .map_err(|e| RacError::UpdateError(format!("Failed to read backups: {}", e)))?
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry.path()
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|s| s.contains(".backup."))
-                    .unwrap_or(false)
-            })
-            .map(|e| e.path())
-            .collect();
-
-        backups.sort_by_key(|path| {
-            fs::metadata(path)
-                .and_then(|m| m.modified())
-                .ok()
-        });
-        backups.reverse();
-
-        Ok(backups)
-    }
-}
-
-impl Default for UpdateInstaller {
-    fn default() -> Self {
-        Self::new().expect("Failed to create UpdateInstaller")
     }
 }

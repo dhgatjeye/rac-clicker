@@ -3,10 +3,8 @@ use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageA, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP,
 };
+use windows::Win32::System::SystemServices::{MK_LBUTTON, MK_RBUTTON};
 use std::time::Duration;
-
-const MK_LBUTTON: u32 = 0x0001;
-const MK_RBUTTON: u32 = 0x0002;
 
 pub struct ClickExecutor;
 
@@ -31,11 +29,11 @@ impl ClickExecutor {
         };
 
         unsafe {
-            PostMessageA(Some(hwnd), down_msg, WPARAM(flags as usize), LPARAM(0))
+            PostMessageA(Some(hwnd), down_msg, WPARAM(flags.0 as usize), LPARAM(0))
                 .map_err(|e| RacError::WindowError(format!("Failed to send button down: {}", e)))?;
 
             std::thread::sleep(hold_duration);
-            
+
             PostMessageA(Some(hwnd), up_msg, WPARAM(0), LPARAM(0))
                 .map_err(|e| RacError::WindowError(format!("Failed to send button up: {}", e)))?;
         }

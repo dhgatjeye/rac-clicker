@@ -77,7 +77,7 @@ impl ConsoleMenu {
     
     fn display_main_menu(&self) {
         println!("╔════════════════════════════════════════════╗");
-        println!("║       RAC v2 - Right Auto Clicker         ║");
+        println!("║              RAC v2                        ║");
         println!("╚════════════════════════════════════════════╝");
         println!();
 

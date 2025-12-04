@@ -39,10 +39,6 @@ impl Version {
     pub fn is_newer_than(&self, other: &Version) -> bool {
         self > other
     }
-    
-    pub fn is_compatible_with(&self, other: &Version) -> bool {
-        self.major == other.major
-    }
 }
 
 impl fmt::Display for Version {

@@ -12,12 +12,6 @@ pub struct HotkeyManager {
     hotkeys: HashMap<i32, bool>
 }
 
-impl Default for HotkeyManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl HotkeyManager {
     pub fn new() -> Self {
         Self {
@@ -29,10 +23,6 @@ impl HotkeyManager {
         if vk_code != 0 {
             self.hotkeys.insert(vk_code, false);
         }
-    }
-
-    pub fn unregister(&mut self, vk_code: i32) {
-        self.hotkeys.remove(&vk_code);
     }
 
     pub fn is_pressed(&self, vk_code: i32) -> bool {
@@ -66,11 +56,7 @@ impl HotkeyManager {
     pub fn check_toggle(&mut self, vk_code: i32) -> bool {
         matches!(self.poll(vk_code), Some(HotkeyEvent::Pressed))
     }
-
-    pub fn clear(&mut self) {
-        self.hotkeys.clear();
-    }
-
+    
     pub fn key_name(vk_code: i32) -> String {
         if vk_code == 0 {
             return "None".to_string();

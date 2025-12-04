@@ -3,23 +3,14 @@ use std::path::{Path, PathBuf};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 
 pub type ProgressCallback = Arc<dyn Fn(u64, u64) + Send + Sync>;
 
-pub struct Downloader {
-    progress: Arc<AtomicU64>,
-    total_size: Arc<AtomicU64>,
-    cancelled: Arc<AtomicBool>,
-}
+pub struct Downloader;
 
 impl Downloader {
     pub fn new() -> Self {
-        Self {
-            progress: Arc::new(AtomicU64::new(0)),
-            total_size: Arc::new(AtomicU64::new(0)),
-            cancelled: Arc::new(AtomicBool::new(false)),
-        }
+        Self
     }
 
     pub fn download(
@@ -30,10 +21,6 @@ impl Downloader {
     ) -> RacResult<PathBuf> {
         use windows::Win32::Networking::WinHttp::*;
         use windows::core::{PCWSTR, HSTRING};
-
-        self.progress.store(0, Ordering::Release);
-        self.total_size.store(0, Ordering::Release);
-        self.cancelled.store(false, Ordering::Release);
 
         unsafe {
             let session = WinHttpOpen(
@@ -47,6 +34,14 @@ impl Downloader {
             if session.is_null() {
                 return Err(RacError::UpdateError("Failed to initialize WinHTTP".to_string()));
             }
+
+            let protocols: u32 = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
+            let protocols_bytes = protocols.to_ne_bytes();
+            let _ = WinHttpSetOption(
+                Some(session as *const std::ffi::c_void),
+                WINHTTP_OPTION_SECURE_PROTOCOLS,
+                Some(&protocols_bytes),
+            );
 
             let url_wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
             let mut url_components: URL_COMPONENTS = std::mem::zeroed();
@@ -147,8 +142,6 @@ impl Downloader {
                 std::ptr::null_mut(),
             );
 
-            self.total_size.store(content_length, Ordering::Release);
-
             let mut file = OpenOptions::new()
                 .write(true)
                 .create(true)
@@ -160,14 +153,6 @@ impl Downloader {
             let mut total_downloaded: u64 = 0;
 
             loop {
-                if self.cancelled.load(Ordering::Acquire) {
-                    let _ = WinHttpCloseHandle(request);
-                    let _ = WinHttpCloseHandle(connect);
-                    let _ = WinHttpCloseHandle(session);
-                    let _ = std::fs::remove_file(dest_path);
-                    return Err(RacError::UpdateError("Download cancelled".to_string()));
-                }
-
                 let mut bytes_read: u32 = 0;
                 if WinHttpReadData(
                     request,
@@ -182,7 +167,6 @@ impl Downloader {
                     .map_err(|e| RacError::UpdateError(format!("Write failed: {}", e)))?;
 
                 total_downloaded += bytes_read as u64;
-                self.progress.store(total_downloaded, Ordering::Release);
 
                 if let Some(ref callback) = progress_callback {
                     callback(total_downloaded, content_length);
@@ -206,110 +190,5 @@ impl Downloader {
 
             Ok(dest_path.to_path_buf())
         }
-    }
-
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
-    }
-
-    pub fn get_progress(&self) -> (u64, u64) {
-        (
-            self.progress.load(Ordering::Acquire),
-            self.total_size.load(Ordering::Acquire),
-        )
-    }
-
-    pub fn get_percentage(&self) -> f32 {
-        let (current, total) = self.get_progress();
-        if total == 0 {
-            return 0.0;
-        }
-        (current as f32 / total as f32) * 100.0
-    }
-}
-
-impl Default for Downloader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub fn verify_checksum(file_path: &Path, expected_checksum: &str) -> RacResult<bool> {
-    use std::fs::File;
-    use std::io::Read;
-
-    let mut file = File::open(file_path)
-        .map_err(|e| RacError::UpdateError(format!("Failed to open file: {}", e)))?;
-
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)
-        .map_err(|e| RacError::UpdateError(format!("Read failed: {}", e)))?;
-
-    let calculated = calculate_sha256(&buffer)?;
-    Ok(calculated.eq_ignore_ascii_case(expected_checksum))
-}
-
-fn calculate_sha256(data: &[u8]) -> RacResult<String> {
-    use windows::Win32::Security::Cryptography::{
-        BCryptOpenAlgorithmProvider, BCryptCloseAlgorithmProvider,
-        BCryptCreateHash, BCryptFinishHash,
-        BCryptDestroyHash, BCryptGetProperty,
-        BCRYPT_SHA256_ALGORITHM, BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS,
-        BCRYPT_ALG_HANDLE, BCRYPT_HASH_HANDLE,
-    };
-    use windows::core::PCWSTR;
-
-    unsafe {
-        let mut alg_handle = BCRYPT_ALG_HANDLE::default();
-        if BCryptOpenAlgorithmProvider(
-            &mut alg_handle,
-            BCRYPT_SHA256_ALGORITHM,
-            PCWSTR::null(),
-            BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS(0),
-        ).is_err() {
-            return Err(RacError::UpdateError("Crypto init failed".to_string()));
-        }
-        
-        let mut hash_obj_size_buf = [0u8; 4];
-        let mut result_len: u32 = 0;
-        if BCryptGetProperty(
-            alg_handle.into(),
-            windows::core::w!("ObjectLength"),
-            Some(&mut hash_obj_size_buf),
-            &mut result_len,
-            0,
-        ).is_err() {
-            let _ = BCryptCloseAlgorithmProvider(alg_handle, 0);
-            return Err(RacError::UpdateError("Get property failed".to_string()));
-        }
-
-        let hash_obj_size = u32::from_le_bytes(hash_obj_size_buf);
-        let mut hash_object = vec![0u8; hash_obj_size as usize];
-        let mut hash_handle = BCRYPT_HASH_HANDLE::default();
-
-        if BCryptCreateHash(
-            alg_handle.into(),
-            &mut hash_handle,
-            Some(&mut hash_object),
-            Some(data),
-            0,
-        ).is_err() {
-            let _ = BCryptCloseAlgorithmProvider(alg_handle, 0);
-            return Err(RacError::UpdateError("Create hash failed".to_string()));
-        }
-
-        let mut hash_value = vec![0u8; 32];
-        if BCryptFinishHash(hash_handle.into(), &mut hash_value, 0).is_err() {
-            let _ = BCryptDestroyHash(hash_handle.into());
-            let _ = BCryptCloseAlgorithmProvider(alg_handle, 0);
-            return Err(RacError::UpdateError("Finish hash failed".to_string()));
-        }
-
-        let _ = BCryptDestroyHash(hash_handle.into());
-        let _ = BCryptCloseAlgorithmProvider(alg_handle, 0);
-        
-        Ok(hash_value.iter()
-            .map(|b| format!("{:02x}", b))
-            .collect())
     }
 }

@@ -8,9 +8,7 @@ pub struct ReleaseInfo {
     pub download_url: String,
     pub release_name: String,
     pub release_notes: String,
-    pub published_at: String,
     pub asset_size: u64,
-    pub checksum: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -18,7 +16,6 @@ struct GithubRelease {
     tag_name: String,
     name: String,
     body: String,
-    published_at: String,
     assets: Vec<GithubAsset>,
 }
 
@@ -30,9 +27,9 @@ struct GithubAsset {
 }
 
 pub struct UpdateChecker {
-    pub(crate) owner: String,
-    pub(crate) repo: String,
-    pub(crate) current_version: Version,
+    owner: String,
+    repo: String,
+    current_version: Version,
 }
 
 impl UpdateChecker {
@@ -69,9 +66,7 @@ impl UpdateChecker {
             download_url: exe_asset.browser_download_url.clone(),
             release_name: release_data.name,
             release_notes: release_data.body,
-            published_at: release_data.published_at,
-            asset_size: exe_asset.size,
-            checksum: None,
+            asset_size: exe_asset.size
         }))
     }
 
@@ -91,6 +86,14 @@ impl UpdateChecker {
             if session.is_null() {
                 return Err(RacError::UpdateError("Failed to open WinHTTP session".to_string()));
             }
+
+            let protocols: u32 = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
+            let protocols_bytes = protocols.to_ne_bytes();
+            let _ = WinHttpSetOption(
+                Some(session as *const std::ffi::c_void),
+                WINHTTP_OPTION_SECURE_PROTOCOLS,
+                Some(&protocols_bytes),
+            );
 
             let url_wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
             let mut url_components: URL_COMPONENTS = std::mem::zeroed();

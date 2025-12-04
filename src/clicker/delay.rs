@@ -115,9 +115,11 @@ impl DelayCalculator {
 
     pub fn hold_duration(&self) -> Duration {
         let mut rng = rand::rng();
+
         let (base_hold, jitter_range) = self.server_timing.hold_duration_us();
         let jitter = rng.random_range(-jitter_range..=jitter_range);
         let hold_time = base_hold.saturating_add_signed(jitter);
+
         Duration::from_micros(hold_time)
     }
 

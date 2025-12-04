@@ -13,6 +13,7 @@ pub enum RacError {
     ThreadError(String),
     SerdeError(String),
     UpdateError(String),
+    UpdateRestart,
     UserExit
 }
 
@@ -28,6 +29,7 @@ impl fmt::Display for RacError {
             Self::ThreadError(msg) => write!(f, "Thread error: {}", msg),
             Self::SerdeError(msg) => write!(f, "Serialization error: {}", msg),
             Self::UpdateError(msg) => write!(f, "Update error: {}", msg),
+            Self::UpdateRestart => write!(f, "Restarting for update"),
             Self::UserExit => write!(f, "User requested exit"),
         }
     }

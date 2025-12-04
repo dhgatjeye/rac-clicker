@@ -2,6 +2,7 @@ use crate::core::{ToggleMode, ClickMode, MouseButton};
 use crate::input::HotkeyManager;
 use crate::thread::ThreadManager;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub struct InputMonitor {
@@ -11,16 +12,18 @@ pub struct InputMonitor {
     toggle_hotkey: i32,
     left_hotkey: i32,
     right_hotkey: i32,
-    rac_enabled: bool
+    rac_enabled: bool,
+    should_stop: Arc<AtomicBool>,
 }
 
 impl InputMonitor {
-    pub fn new(
+    pub fn with_stop_signal(
         toggle_mode: ToggleMode,
         click_mode: ClickMode,
         toggle_hotkey: i32,
         left_hotkey: i32,
         right_hotkey: i32,
+        should_stop: Arc<AtomicBool>,
     ) -> Self {
         let mut hotkey_manager = HotkeyManager::new();
 
@@ -42,28 +45,12 @@ impl InputMonitor {
             left_hotkey,
             right_hotkey,
             rac_enabled: false,
+            should_stop,
         }
     }
 
-    pub fn update_config(
-        &mut self,
-        toggle_mode: ToggleMode,
-        click_mode: ClickMode,
-        toggle_hotkey: i32,
-        left_hotkey: i32,
-        right_hotkey: i32,
-    ) {
-        self.toggle_mode = toggle_mode;
-        self.click_mode = click_mode;
-
-        self.hotkey_manager.clear();
-        self.hotkey_manager.register(toggle_hotkey);
-        self.hotkey_manager.register(left_hotkey);
-        self.hotkey_manager.register(right_hotkey);
-
-        self.toggle_hotkey = toggle_hotkey;
-        self.left_hotkey = left_hotkey;
-        self.right_hotkey = right_hotkey;
+    fn should_stop(&self) -> bool {
+        self.should_stop.load(Ordering::Acquire)
     }
 
     pub fn monitor_loop(&mut self, thread_manager: Arc<std::sync::Mutex<ThreadManager>>) {
@@ -72,7 +59,7 @@ impl InputMonitor {
 
         if auto_enable {
             self.rac_enabled = true;
-            
+
             let tm = match thread_manager.lock() {
                 Ok(tm) => tm,
                 Err(_) => return,
@@ -97,8 +84,12 @@ impl InputMonitor {
         }
 
         loop {
+            if self.should_stop() {
+                break;
+            }
+
             std::thread::sleep(Duration::from_millis(10));
-            
+
             if self.toggle_hotkey != 0 {
                 if self.hotkey_manager.check_toggle(self.toggle_hotkey) {
                     self.rac_enabled = !self.rac_enabled;
@@ -137,7 +128,7 @@ impl InputMonitor {
                     }
                 }
             }
-            
+
             if self.rac_enabled {
                 let tm = match thread_manager.lock() {
                     Ok(tm) => tm,
@@ -151,7 +142,7 @@ impl InputMonitor {
                                 worker.set_active(self.hotkey_manager.is_pressed(self.left_hotkey));
                             }
                         }
-                        
+
                         if self.click_mode.is_right_active() && self.right_hotkey != 0 {
                             if let Some(worker) = tm.get_worker(MouseButton::Right) {
                                 worker.set_active(self.hotkey_manager.is_pressed(self.right_hotkey));
@@ -159,9 +150,9 @@ impl InputMonitor {
                         }
                     }
                     ToggleMode::MouseHold => {
-                        let same_hotkey = self.left_hotkey != 0 
+                        let same_hotkey = self.left_hotkey != 0
                             && self.left_hotkey == self.right_hotkey;
-                        
+
                         if self.click_mode.is_left_active() && self.left_hotkey != 0 {
                             if self.hotkey_manager.check_toggle(self.left_hotkey) {
                                 if let Some(worker) = tm.get_worker(MouseButton::Left) {
@@ -187,13 +178,5 @@ impl InputMonitor {
                 }
             }
         }
-    }
-    
-    pub fn is_enabled(&self) -> bool {
-        self.rac_enabled
-    }
-    
-    pub fn set_enabled(&mut self, enabled: bool) {
-        self.rac_enabled = enabled;
     }
 }

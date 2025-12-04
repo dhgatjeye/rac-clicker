@@ -89,12 +89,6 @@ impl SyncSignal {
     }
 }
 
-impl Default for SyncSignal {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 pub struct SmartSleep;
 
 impl SmartSleep {

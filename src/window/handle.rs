@@ -13,12 +13,6 @@ impl WindowHandle {
         }
     }
 
-    pub fn from_hwnd(hwnd: HWND) -> Self {
-        Self {
-            hwnd: Arc::new(Mutex::new(hwnd)),
-        }
-    }
-
     pub fn get(&self) -> HWND {
         *self.hwnd.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -28,19 +22,7 @@ impl WindowHandle {
             *guard = hwnd;
         }
     }
-
-    pub fn is_valid(&self) -> bool {
-        let hwnd = self.get();
-        !hwnd.is_invalid() && !hwnd.0.is_null()
-    }
-}
-
-impl Default for WindowHandle {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 unsafe impl Send for WindowHandle {}
 unsafe impl Sync for WindowHandle {}
-

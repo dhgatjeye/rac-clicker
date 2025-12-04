@@ -106,19 +106,6 @@ impl ThreadManager {
         worker.signal().pause();
         Ok(())
     }
-
-    pub fn is_worker_running(&self, button: MouseButton) -> bool {
-        self.workers
-            .get(&button)
-            .map(|w| w.signal().is_running())
-            .unwrap_or(false)
-    }
-}
-
-impl Default for ThreadManager {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl Drop for ThreadManager {

@@ -93,56 +93,19 @@ impl ClickMode {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ClickPattern {
     pub max_cps: u8,
-    pub min_delay_us: u64,
-    pub randomize: bool,
-    pub jitter_us: i64,
-    pub hold_duration_us: u64,
 }
 
 impl Default for ClickPattern {
     fn default() -> Self {
         Self {
             max_cps: 15,
-            min_delay_us: 200,
-            randomize: false,
-            jitter_us: 40,
-            hold_duration_us: 35
         }
     }
 }
 
 impl ClickPattern {
     pub fn from_cps(cps: u8) -> Self {
-
-        let min_delay = match cps {
-            17.. => 420,
-            15..=16 => 400,
-            13..=14 => 360,
-            11..=12 => 330,
-            _ => 300,
-        };
-
-        Self {
-            max_cps: cps,
-            min_delay_us: min_delay,
-            randomize: false,
-            jitter_us: 40,
-            hold_duration_us: 35,
-        }
-    }
-
-    pub fn with_randomization(mut self, jitter: i64) -> Self {
-        self.randomize = true;
-        self.jitter_us = jitter;
-        self
-    }
-
-    pub fn base_delay_us(&self) -> u64 {
-        if self.max_cps == 0 {
-            1_000_000
-        } else {
-            1_000_000 / self.max_cps as u64
-        }
+        Self { max_cps: cps }
     }
 }
 

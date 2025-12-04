@@ -22,15 +22,6 @@ impl WindowFinder {
         }
     }
     
-    pub fn set_target_process(&self, process_name: impl Into<String>) {
-        if let Ok(mut target) = self.target_process.lock() {
-            *target = process_name.into();
-            if let Ok(mut pid) = self.last_found_pid.lock() {
-                *pid = None;
-            }
-        }
-    }
-    
     pub fn find_window(&self, window_handle: &WindowHandle) -> RacResult<bool> {
         let target = match self.target_process.lock() {
             Ok(t) => t.clone(),

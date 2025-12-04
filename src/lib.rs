@@ -28,6 +28,7 @@ pub use clicker::{
 
 pub use window::{
     WindowFinder, WindowHandle,
+    WindowWatcher, WatcherConfig, WatcherStats,
 };
 
 pub use input::{
@@ -39,5 +40,5 @@ pub use menu::{
 };
 
 pub use update::{
-    UpdateManager, UpdateChecker, ReleaseInfo, Version,
+    UpdateManager, ReleaseInfo, Version,
 };

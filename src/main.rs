@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -7,7 +8,7 @@ use rac_clicker::{
     RacResult, RacError, MouseButton,
     ThreadManager, ClickWorker, WorkerConfig,
     ClickExecutor, ClickController, DelayCalculator,
-    WindowFinder, WindowHandle,
+    WindowFinder, WindowHandle, WindowWatcher,
     InputMonitor, HotkeyManager,
     ConsoleMenu,
     UpdateManager, Version,
@@ -18,10 +19,22 @@ struct RacApp {
     thread_manager: Arc<Mutex<ThreadManager>>,
     window_handle: Arc<WindowHandle>,
     window_finder: Arc<WindowFinder>,
+    window_watcher: Option<WindowWatcher>,
+    input_monitor_stop: Arc<AtomicBool>,
+    input_monitor_handle: Option<thread::JoinHandle<()>>,
 }
 
 impl Drop for RacApp {
     fn drop(&mut self) {
+        self.input_monitor_stop.store(true, Ordering::Release);
+        if let Some(handle) = self.input_monitor_handle.take() {
+            let _ = handle.join();
+        }
+
+        if let Some(ref mut watcher) = self.window_watcher {
+            watcher.stop();
+        }
+
         if let Ok(mut tm) = self.thread_manager.lock() {
             let _ = tm.stop_all();
         }
@@ -37,6 +50,9 @@ impl RacApp {
             thread_manager: Arc::new(Mutex::new(ThreadManager::new())),
             window_handle: Arc::new(WindowHandle::new()),
             window_finder: Arc::new(WindowFinder::new(&target_process)),
+            window_watcher: None,
+            input_monitor_stop: Arc::new(AtomicBool::new(false)),
+            input_monitor_handle: None,
         })
     }
 
@@ -128,34 +144,38 @@ impl RacApp {
         Ok(())
     }
 
-    fn start_window_finder(&self) {
-        let window_finder = Arc::clone(&self.window_finder);
-        let window_handle = Arc::clone(&self.window_handle);
-
-        thread::spawn(move || {
-            loop {
-                let _ = window_finder.find_window(&window_handle);
-                thread::sleep(Duration::from_secs(2));
-            }
-        });
+    fn start_window_watcher(&mut self) {
+        let mut watcher = WindowWatcher::new(
+            Arc::clone(&self.window_finder),
+            Arc::clone(&self.window_handle),
+        );
+        watcher.start();
+        self.window_watcher = Some(watcher);
     }
 
-    fn start_input_monitor(&self) -> RacResult<()> {
+    fn start_input_monitor(&mut self) -> RacResult<()> {
         let settings = &self.profile.settings;
+        let stop_signal = Arc::clone(&self.input_monitor_stop);
 
-        let mut input_monitor = InputMonitor::new(
+        let mut input_monitor = InputMonitor::with_stop_signal(
             settings.toggle_mode,
             settings.click_mode,
             settings.toggle_hotkey,
             settings.left_hotkey,
             settings.right_hotkey,
+            stop_signal,
         );
 
         let thread_manager = Arc::clone(&self.thread_manager);
 
-        thread::spawn(move || {
-            input_monitor.monitor_loop(thread_manager);
-        });
+        let handle = thread::Builder::new()
+            .name("RacInputMonitor".to_string())
+            .spawn(move || {
+                input_monitor.monitor_loop(thread_manager);
+            })
+            .map_err(|e| RacError::ThreadError(format!("Failed to spawn input monitor: {}", e)))?;
+
+        self.input_monitor_handle = Some(handle);
 
         Ok(())
     }
@@ -171,8 +191,8 @@ impl RacApp {
         println!("→ Starting worker threads...");
         self.start_workers()?;
 
-        println!("→ Starting window finder...");
-        self.start_window_finder();
+        println!("→ Starting window watcher...");
+        self.start_window_watcher();
 
         println!("→ Starting input monitor...");
         self.start_input_monitor()?;
@@ -207,6 +227,15 @@ impl RacApp {
                 if ctrl_pressed && q_pressed {
                     println!("\n✓ Ctrl+Q detected - Stopping RAC v2...");
 
+                    self.input_monitor_stop.store(true, Ordering::Release);
+                    if let Some(handle) = self.input_monitor_handle.take() {
+                        let _ = handle.join();
+                    }
+
+                    if let Some(ref mut watcher) = self.window_watcher {
+                        watcher.stop();
+                    }
+
                     if let Ok(mut tm) = self.thread_manager.lock() {
                         let _ = tm.stop_all();
                     }
@@ -234,27 +263,26 @@ fn check_single_instance() -> bool {
     }
 }
 
-
-fn check_and_update() {
+fn check_and_update() -> RacResult<()> {
     use std::io::{self, Write};
 
     print!("Checking for updates");
     io::stdout().flush().ok();
 
-    let checking = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let checking = Arc::new(AtomicBool::new(true));
     let checking_clone = checking.clone();
 
     let animation_handle = thread::spawn(move || {
-        while checking_clone.load(std::sync::atomic::Ordering::Relaxed) {
+        while checking_clone.load(Ordering::Relaxed) {
             for _ in 0..3 {
-                if !checking_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                if !checking_clone.load(Ordering::Relaxed) {
                     break;
                 }
                 print!(".");
                 io::stdout().flush().ok();
                 thread::sleep(Duration::from_millis(300));
             }
-            if checking_clone.load(std::sync::atomic::Ordering::Relaxed) {
+            if checking_clone.load(Ordering::Relaxed) {
                 print!("\rChecking for updates   ");
                 io::stdout().flush().ok();
             }
@@ -265,10 +293,10 @@ fn check_and_update() {
         Ok(update_mgr) => {
             match update_mgr.check_for_updates() {
                 Ok(Some(release)) => {
-                    checking.store(false, std::sync::atomic::Ordering::Relaxed);
+                    checking.store(false, Ordering::Relaxed);
                     let _ = animation_handle.join();
 
-                    println!("\r                                              ");
+                    println!("\r                                            ");
                     println!("\n╔══════════════════════════════════════════╗");
                     println!("║           NEW UPDATE AVAILABLE!            ║");
                     println!("╚════════════════════════════════════════════╝");
@@ -312,6 +340,12 @@ fn check_and_update() {
                                     println!("Restarting application...\n");
                                     thread::sleep(Duration::from_secs(1));
                                 }
+                                Err(RacError::UpdateRestart) => {
+                                    println!("\n\nUpdate installed successfully!");
+                                    println!("Restarting application...\n");
+                                    thread::sleep(Duration::from_secs(1));
+                                    return Err(RacError::UpdateRestart);
+                                }
                                 Err(e) => {
                                     println!("\n\nUpdate failed: {}", e);
                                     println!("RAC will continue with current version.\n");
@@ -325,14 +359,14 @@ fn check_and_update() {
                     }
                 }
                 Ok(None) => {
-                    checking.store(false, std::sync::atomic::Ordering::Relaxed);
+                    checking.store(false, Ordering::Relaxed);
                     let _ = animation_handle.join();
                     println!("\rYou're up to date! (v{})        ", Version::current());
                     thread::sleep(Duration::from_millis(500));
                     println!();
                 }
                 Err(e) => {
-                    checking.store(false, std::sync::atomic::Ordering::Relaxed);
+                    checking.store(false, Ordering::Relaxed);
                     let _ = animation_handle.join();
                     println!("\r  Could not check for updates: {}        ", e);
                     println!("   Starting RAC normally...\n");
@@ -341,13 +375,15 @@ fn check_and_update() {
             }
         }
         Err(e) => {
-            checking.store(false, std::sync::atomic::Ordering::Relaxed);
+            checking.store(false, Ordering::Relaxed);
             let _ = animation_handle.join();
             println!("\r   Could not initialize update system: {}        ", e);
             println!("   Starting RAC normally...\n");
             thread::sleep(Duration::from_millis(800));
         }
     }
+
+    Ok(())
 }
 
 fn main() -> RacResult<()> {
@@ -367,7 +403,9 @@ fn main() -> RacResult<()> {
         std::process::exit(1);
     }
 
-    check_and_update();
+    if let Err(RacError::UpdateRestart) = check_and_update() {
+        return Ok(());
+    }
 
     loop {
         unsafe {

@@ -20,10 +20,6 @@ impl ClickController {
         }
     }
     
-    pub fn set_toggle_mode(&mut self, mode: ToggleMode) {
-        self.toggle_mode = mode;
-    }
-
     pub fn run_loop(
         &self,
         worker: Arc<ClickWorker>,
