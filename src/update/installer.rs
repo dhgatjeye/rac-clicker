@@ -75,6 +75,17 @@ impl UpdateInstaller {
             .ok_or_else(|| RacError::UpdateError("Invalid new exe path".to_string()))?;
         let backup_str = backup_path.to_str()
             .ok_or_else(|| RacError::UpdateError("Invalid backup path".to_string()))?;
+
+        let new_exe_name = new_exe.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("rac-clicker.exe");
+        
+        let current_dir = current_exe.parent()
+            .ok_or_else(|| RacError::UpdateError("Cannot get current exe directory".to_string()))?;
+        
+        let new_target_path = current_dir.join(new_exe_name);
+        let new_target_str = new_target_path.to_str()
+            .ok_or_else(|| RacError::UpdateError("Invalid new target path".to_string()))?;
         
         let script = format!(r#"
 # RAC Auto-Update Script
@@ -84,11 +95,11 @@ Start-Sleep -Seconds 2
 $maxRetries = 10
 $retryCount = 0
 
-# Wait until file is not locked
+# Wait until file is not locked and copy to new versioned filename
 while ($retryCount -lt $maxRetries) {{
     try {{
-        # Try to replace the file
-        Copy-Item -Path "{new_exe}" -Destination "{current_exe}" -Force
+        # Copy to new versioned filename
+        Copy-Item -Path "{new_exe}" -Destination "{new_target}" -Force
         break
     }}
     catch {{
@@ -107,16 +118,26 @@ if ($retryCount -ge $maxRetries) {{
     exit 1
 }}
 
-# Cleanup
+# If old exe has different name than new one, remove old exe
+if ("{current_exe}" -ne "{new_target}") {{
+    Remove-Item -Path "{current_exe}" -Force -ErrorAction SilentlyContinue
+}}
+
+# Cleanup downloaded temp file
 Remove-Item -Path "{new_exe}" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path $PSCommandPath -Force -ErrorAction SilentlyContinue
 
-# Restart application
-Start-Process -FilePath "{current_exe}"
+# Restart application with new versioned filename
+Start-Process -FilePath "{new_target}"
 
 Write-Host "Update complete!"
 exit 0
-"#, new_exe = new_exe_str, current_exe = current_exe_str, backup = backup_str);
+"#, 
+            new_exe = new_exe_str, 
+            current_exe = current_exe_str, 
+            backup = backup_str,
+            new_target = new_target_str
+        );
 
         fs::write(&script_path, script)
             .map_err(|e| RacError::UpdateError(format!("Failed to write updater script: {}", e)))?;
