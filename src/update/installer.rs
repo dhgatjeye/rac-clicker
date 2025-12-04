@@ -226,12 +226,7 @@ try {{
 catch {{
     Invoke-Rollback $_.Exception.Message
 }}
-"#,
-                             new_exe = new_exe_str,
-                             current_exe = current_exe_str,
-                             backup = backup_str,
-                             new_target = new_target_str
-        );
+"#, new_exe = new_exe_str, current_exe = current_exe_str, backup = backup_str, new_target = new_target_str);
 
         fs::write(&script_path, script)
             .map_err(|e| RacError::UpdateError(format!("Failed to write updater script: {}", e)))?;
