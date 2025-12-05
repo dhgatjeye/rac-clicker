@@ -64,13 +64,9 @@ impl ThreadManager {
 
         if let Some(handle_opt) = self.handles.get_mut(&button) {
             if let Some(handle) = handle_opt.take() {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                
-                if let Err(e) = handle.join() {
-                    return Err(RacError::ThreadError(
-                        format!("Failed to join thread for {:?}: {:?}", button, e)
-                    ));
-                }
+                handle.join().map_err(|e| {
+                    RacError::ThreadError(format!("Failed to join thread for {:?}: {:?}", button, e))
+                })?;
             }
         }
 
