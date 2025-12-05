@@ -100,11 +100,15 @@ impl ConsoleMenu {
         print!("Select option: ");
         io::stdout().flush().ok();
     }
-    
+
     fn set_console_title(&self, title: &str) -> RacResult<()> {
+        use std::ffi::CString;
+
+        let title_cstring = CString::new(title)
+            .map_err(|_| RacError::InvalidInput("Title contains null byte".into()))?;
+
         unsafe {
-            let title_cstring = format!("{}\0", title);
-            SetConsoleTitleA(PCSTR::from_raw(title_cstring.as_ptr()))
+            SetConsoleTitleA(PCSTR::from_raw(title_cstring.as_ptr() as *const u8))
                 .map_err(|e| RacError::WindowError(format!("Failed to set console title: {}", e)))?;
         }
         Ok(())
