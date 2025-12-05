@@ -7,6 +7,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, 
 use std::sync::Arc;
 use std::time::Duration;
 
+const MAX_CONSECUTIVE_ERRORS: u32 = 50;
+const ERROR_SLEEP_MS: u64 = 20;
+const INVALID_HWND_SLEEP_MS: u64 = 20;
+
 pub struct ClickController {
     executor: ClickExecutor,
     toggle_mode: ToggleMode,
@@ -27,6 +31,7 @@ impl ClickController {
         hwnd_provider: impl Fn() -> HWND,
     ) {
         let mut last_button_state = false;
+        let mut consecutive_errors: u32 = 0;
 
         loop {
             if worker.signal().is_stopped() {
@@ -64,19 +69,25 @@ impl ClickController {
             
             let hwnd = hwnd_provider();
             if hwnd.is_invalid() {
-                SmartSleep::sleep(Duration::from_millis(20));
+                SmartSleep::sleep(Duration::from_millis(INVALID_HWND_SLEEP_MS));
                 continue;
             }
             
             let hold_duration = delay_calc.hold_duration();
-            if let Err(_) = self.executor.execute_click(
-                hwnd,
-                worker.config().button,
-                hold_duration,
-            ) {
-                SmartSleep::sleep(Duration::from_millis(20));
+            if self.executor.execute_click(hwnd, worker.config().button, hold_duration).is_err() {
+                consecutive_errors += 1;
+                
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                    eprintln!("Too many consecutive click errors, pausing worker");
+                    worker.signal().pause();
+                    consecutive_errors = 0;
+                }
+                
+                SmartSleep::sleep(Duration::from_millis(ERROR_SLEEP_MS));
                 continue;
             }
+            
+            consecutive_errors = 0;
             
             let delay = delay_calc.next_delay();
             SmartSleep::sleep(delay);
