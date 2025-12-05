@@ -13,7 +13,7 @@ impl Version {
     pub const fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self { major, minor, patch }
     }
-    
+
     pub fn current() -> Self {
         Self::parse(env!("CARGO_PKG_VERSION")).unwrap_or(Self::new(0, 0, 0))
     }

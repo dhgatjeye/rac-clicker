@@ -28,12 +28,6 @@ pub struct SyncSignal {
     mutex: Mutex<()>,
 }
 
-impl Default for SyncSignal {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl SyncSignal {
     pub fn new() -> Self {
         Self {

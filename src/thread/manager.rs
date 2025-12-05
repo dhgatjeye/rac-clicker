@@ -1,22 +1,12 @@
 use crate::core::{RacResult, RacError, MouseButton};
 use crate::thread::worker::ClickWorker;
 use std::sync::Arc;
-use std::thread::{self, JoinHandle, Builder};
-use std::time::{Duration, Instant};
+use std::thread::{JoinHandle, Builder};
 use std::collections::HashMap;
-
-const JOIN_TIMEOUT: Duration = Duration::from_secs(5);
-const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 pub struct ThreadManager {
     workers: HashMap<MouseButton, Arc<ClickWorker>>,
     handles: HashMap<MouseButton, Option<JoinHandle<()>>>,
-}
-
-impl Default for ThreadManager {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl ThreadManager {
@@ -74,17 +64,8 @@ impl ThreadManager {
 
         if let Some(handle_opt) = self.handles.get_mut(&button) {
             if let Some(handle) = handle_opt.take() {
-                let start = Instant::now();
-
-                while !handle.is_finished() {
-                    if start.elapsed() >= JOIN_TIMEOUT {
-                        return Err(RacError::ThreadError(
-                            format!("Thread for {:?} did not stop within timeout", button)
-                        ));
-                    }
-                    thread::sleep(POLL_INTERVAL);
-                }
-
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                
                 if let Err(e) = handle.join() {
                     return Err(RacError::ThreadError(
                         format!("Failed to join thread for {:?}: {:?}", button, e)

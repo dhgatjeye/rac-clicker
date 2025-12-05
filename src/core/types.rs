@@ -33,20 +33,16 @@ impl fmt::Display for ServerType {
     }
 }
 
-impl std::str::FromStr for ServerType {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl ServerType {
+    pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "craftrise" => Ok(Self::Craftrise),
-            "sonoyuncu" => Ok(Self::Sonoyuncu),
-            "custom" => Ok(Self::Custom),
-            _ => Err(()),
+            "craftrise" => Some(Self::Craftrise),
+            "sonoyuncu" => Some(Self::Sonoyuncu),
+            "custom" => Some(Self::Custom),
+            _ => None,
         }
     }
-}
 
-impl ServerType {
     pub fn all() -> Vec<Self> {
         vec![Self::Craftrise, Self::Sonoyuncu, Self::Custom]
     }

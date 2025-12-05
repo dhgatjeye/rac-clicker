@@ -110,7 +110,7 @@ impl UpdateChecker {
                 PCWSTR::null(),
                 0,
             ))
-            .ok_or_else(|| RacError::UpdateError("Failed to open WinHTTP session".into()))?;
+                .ok_or_else(|| RacError::UpdateError("Failed to open WinHTTP session".into()))?;
 
             let protocols: u32 = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
             let _ = WinHttpSetOption(
@@ -127,7 +127,7 @@ impl UpdateChecker {
                 port,
                 0,
             ))
-            .ok_or_else(|| RacError::UpdateError("Failed to connect to server".into()))?;
+                .ok_or_else(|| RacError::UpdateError("Failed to connect to server".into()))?;
 
             let request = WinHttpHandle::new(WinHttpOpenRequest(
                 connect.as_ptr(),
@@ -138,7 +138,7 @@ impl UpdateChecker {
                 std::ptr::null(),
                 WINHTTP_FLAG_SECURE,
             ))
-            .ok_or_else(|| RacError::UpdateError("Failed to open request".into()))?;
+                .ok_or_else(|| RacError::UpdateError("Failed to open request".into()))?;
 
             WinHttpSetTimeouts(request.as_ptr(), 30000, 30000, 30000, 30000)
                 .map_err(|_| RacError::UpdateError("Failed to set timeout".into()))?;
@@ -211,7 +211,7 @@ fn query_status_code(request: *mut std::ffi::c_void) -> RacResult<u32> {
             &mut size,
             std::ptr::null_mut(),
         )
-        .map_err(|_| RacError::UpdateError("Failed to query status".into()))?;
+            .map_err(|_| RacError::UpdateError("Failed to query status".into()))?;
 
         Ok(status_code)
     }

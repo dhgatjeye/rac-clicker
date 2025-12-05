@@ -10,22 +10,41 @@ pub mod update;
 pub mod window;
 
 pub use core::{
-    ClickMode, ClickPattern, ClickerState, MouseButton, RacError, RacResult, ServerType,
-    ToggleMode,
+    RacError, RacResult,
+    MouseButton, ServerType, ToggleMode, ClickMode,
+    ClickPattern, ClickerState,
 };
 
-pub use config::{ConfigProfile, ServerConfig, ServerRegistry, Settings, SettingsManager};
+pub use config::{
+    ServerConfig, ServerRegistry, Settings, SettingsManager, ConfigProfile,
+};
 
-pub use thread::{ClickWorker, SyncSignal, ThreadManager, WorkerConfig, WorkerState};
+pub use thread::{
+    ThreadManager, ClickWorker, WorkerConfig, SyncSignal, WorkerState,
+};
 
-pub use clicker::{ClickController, ClickExecutor, DelayCalculator};
+pub use clicker::{
+    ClickExecutor, ClickController, DelayCalculator,
+};
 
-pub use window::{WatcherConfig, WindowFinder, WindowHandle, WindowWatcher};
+pub use window::{
+    WindowFinder, WindowHandle,
+    WindowWatcher, WatcherConfig, WatcherStats,
+};
 
-pub use input::{HotkeyEvent, HotkeyManager, InputMonitor, MonitorConfig};
+pub use input::{
+    HotkeyManager, HotkeyEvent, InputMonitor,
+};
 
-pub use menu::{ConsoleMenu, MenuCommand};
+pub use menu::{
+    ConsoleMenu, MenuCommand,
+};
 
-pub use update::{ReleaseInfo, UpdateManager, Version};
+pub use update::{
+    UpdateManager, ReleaseInfo, Version,
+};
 
-pub use app::{check_and_update, check_single_instance, RacApp};
+pub use app::{
+    RacApp, check_and_update, is_first_instance, 
+    flush_console_input, has_configured_hotkeys,
+};

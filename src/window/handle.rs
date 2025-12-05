@@ -1,49 +1,26 @@
-use std::sync::atomic::{AtomicIsize, Ordering};
 use windows::Win32::Foundation::HWND;
+use std::sync::{Arc, Mutex};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WindowHandle {
-    raw: AtomicIsize,
+    hwnd: Arc<Mutex<HWND>>,
 }
 
 impl WindowHandle {
-    #[inline]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            raw: AtomicIsize::new(0),
+            hwnd: Arc::new(Mutex::new(HWND(std::ptr::null_mut()))),
         }
     }
-    
-    #[inline]
+
     pub fn get(&self) -> HWND {
-        HWND(self.raw.load(Ordering::Acquire) as *mut _)
+        *self.hwnd.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    #[inline]
     pub fn set(&self, hwnd: HWND) {
-        self.raw.store(hwnd.0 as isize, Ordering::Release);
-    }
-    
-    #[inline]
-    pub fn clear(&self) {
-        self.raw.store(0, Ordering::Release);
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn is_valid(&self) -> bool {
-        self.raw.load(Ordering::Acquire) != 0
-    }
-    
-    #[inline]
-    pub fn swap(&self, hwnd: HWND) -> HWND {
-        HWND(self.raw.swap(hwnd.0 as isize, Ordering::AcqRel) as *mut _)
-    }
-}
-
-impl Default for WindowHandle {
-    fn default() -> Self {
-        Self::new()
+        if let Ok(mut guard) = self.hwnd.lock() {
+            *guard = hwnd;
+        }
     }
 }
 
