@@ -1,248 +1,163 @@
 use crate::window::{WindowFinder, WindowHandle};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct WatcherConfig {
-    pub found_interval: Duration,
+    pub active_interval: Duration,
     pub search_interval: Duration,
-    pub shutdown_timeout: Duration,
+}
+
+impl WatcherConfig {
+    pub const fn new(active_interval: Duration, search_interval: Duration) -> Self {
+        Self {
+            active_interval,
+            search_interval,
+        }
+    }
 }
 
 impl Default for WatcherConfig {
     fn default() -> Self {
         Self {
-            found_interval: Duration::from_secs(4),
+            active_interval: Duration::from_secs(3),
             search_interval: Duration::from_millis(500),
-            shutdown_timeout: Duration::from_secs(2),
         }
     }
 }
 
-#[derive(Debug, Default)]
-pub struct WatcherStats {
-    checks: AtomicU64,
-    successful_finds: AtomicU64,
+struct SharedState {
+    stop_signal: AtomicBool,
+    window_active: AtomicBool,
 }
 
-impl WatcherStats {
-    pub fn total_checks(&self) -> u64 {
-        self.checks.load(Ordering::Relaxed)
-    }
-
-    pub fn successful_finds(&self) -> u64 {
-        self.successful_finds.load(Ordering::Relaxed)
-    }
-
-    fn record_check(&self) {
-        self.checks.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn record_success(&self) {
-        self.successful_finds.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-struct WatcherState {
-    should_stop: AtomicBool,
-    is_window_found: AtomicBool,
-    condvar: Condvar,
-    mutex: Mutex<()>,
-}
-
-impl WatcherState {
-    fn new() -> Self {
+impl SharedState {
+    const fn new() -> Self {
         Self {
-            should_stop: AtomicBool::new(false),
-            is_window_found: AtomicBool::new(false),
-            condvar: Condvar::new(),
-            mutex: Mutex::new(()),
+            stop_signal: AtomicBool::new(false),
+            window_active: AtomicBool::new(false),
         }
     }
 
-    fn request_stop(&self) {
-        self.should_stop.store(true, Ordering::Release);
-        self.condvar.notify_all();
-    }
-
+    #[inline]
     fn should_stop(&self) -> bool {
-        self.should_stop.load(Ordering::Acquire)
+        self.stop_signal.load(Ordering::Acquire)
     }
 
-    fn set_window_found(&self, found: bool) {
-        self.is_window_found.store(found, Ordering::Release);
+    #[inline]
+    fn request_stop(&self) {
+        self.stop_signal.store(true, Ordering::Release);
     }
 
-    fn is_window_found(&self) -> bool {
-        self.is_window_found.load(Ordering::Acquire)
+    #[inline]
+    fn set_active(&self, active: bool) {
+        self.window_active.store(active, Ordering::Release);
     }
 
-    fn interruptible_sleep(&self, duration: Duration) -> bool {
-        if self.should_stop() {
-            return true;
-        }
-
-        let guard = self.mutex.lock().unwrap_or_else(|e| e.into_inner());
-
-        let _ = self.condvar.wait_timeout_while(
-            guard,
-            duration,
-            |_| !self.should_stop()
-        );
-
-
-        self.should_stop()
+    #[inline]
+    fn is_active(&self) -> bool {
+        self.window_active.load(Ordering::Acquire)
     }
 }
 
 pub struct WindowWatcher {
-    state: Arc<WatcherState>,
-    stats: Arc<WatcherStats>,
-    config: WatcherConfig,
-    handle: Option<JoinHandle<()>>,
-    window_finder: Arc<WindowFinder>,
-    window_handle: Arc<WindowHandle>,
+    state: Arc<SharedState>,
+    thread: Option<JoinHandle<()>>,
 }
 
 impl WindowWatcher {
-    pub fn new(window_finder: Arc<WindowFinder>, window_handle: Arc<WindowHandle>) -> Self {
-        Self::with_config(window_finder, window_handle, WatcherConfig::default())
-    }
-
-    pub fn with_config(
-        window_finder: Arc<WindowFinder>,
-        window_handle: Arc<WindowHandle>,
+    pub fn spawn(
+        finder: WindowFinder,
+        handle: Arc<WindowHandle>,
         config: WatcherConfig,
     ) -> Self {
+        let state = Arc::new(SharedState::new());
+        let state_clone = Arc::clone(&state);
+
+        let thread = thread::Builder::new()
+            .name("WindowWatcher".into())
+            .spawn(move || {
+                Self::watch_loop(state_clone, finder, handle, config);
+            })
+            .expect("Failed to spawn watcher thread");
+
         Self {
-            state: Arc::new(WatcherState::new()),
-            stats: Arc::new(WatcherStats::default()),
-            config,
-            handle: None,
-            window_finder,
-            window_handle,
+            state,
+            thread: Some(thread),
         }
     }
 
-    pub fn start(&mut self) {
-        if self.handle.is_some() {
-            return;
-        }
+    #[inline]
+    pub fn spawn_default(finder: WindowFinder, handle: Arc<WindowHandle>) -> Self {
+        Self::spawn(finder, handle, WatcherConfig::default())
+    }
 
-        let state = Arc::clone(&self.state);
-        let stats = Arc::clone(&self.stats);
-        let config = self.config.clone();
-        let finder = Arc::clone(&self.window_finder);
-        let handle = Arc::clone(&self.window_handle);
-
-        let thread_handle = thread::Builder::new()
-            .name("RacWindowWatcher".to_string())
-            .spawn(move || {
-                Self::watcher_loop(state, stats, config, finder, handle);
-            })
-            .expect("Failed to spawn window watcher thread");
-
-        self.handle = Some(thread_handle);
+    #[inline]
+    #[must_use]
+    pub fn is_window_active(&self) -> bool {
+        self.state.is_active()
     }
 
     pub fn stop(&mut self) {
         self.state.request_stop();
 
-        if let Some(handle) = self.handle.take() {
-            let start = Instant::now();
-            while !handle.is_finished() {
-                if start.elapsed() > self.config.shutdown_timeout {
-                    break;
-                }
-            }
-
-            if handle.is_finished() {
-                let _ = handle.join();
-            }
+        if let Some(thread) = self.thread.take() {
+            thread::sleep(Duration::from_millis(10));
+            let _ = thread.join();
         }
     }
 
     pub fn is_running(&self) -> bool {
-        self.handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
+        self.thread
+            .as_ref()
+            .map(|t| !t.is_finished())
+            .unwrap_or(false)
     }
 
-    pub fn is_window_found(&self) -> bool {
-        self.state.is_window_found()
-    }
-
-    pub fn stats(&self) -> &WatcherStats {
-        &self.stats
-    }
-
-    fn watcher_loop(
-        state: Arc<WatcherState>,
-        stats: Arc<WatcherStats>,
-        config: WatcherConfig,
-        finder: Arc<WindowFinder>,
+    fn watch_loop(
+        state: Arc<SharedState>,
+        finder: WindowFinder,
         handle: Arc<WindowHandle>,
+        config: WatcherConfig,
     ) {
-        let mut consecutive_failures = 0u32;
-        let mut last_state_change = Instant::now();
+        let mut was_active = false;
 
         while !state.should_stop() {
-            stats.record_check();
+            let is_active = finder
+                .find_and_update(&handle)
+                .unwrap_or_else(|_| {
+                    finder.invalidate_cache();
+                    false
+                });
 
-            let found = finder.find_window(&handle).unwrap_or_else(|_| {
-                false
-            });
+            state.set_active(is_active);
 
-            let was_found = state.is_window_found();
-            state.set_window_found(found);
+            if is_active != was_active {
+                was_active = is_active;
+            }
 
-            if found {
-                stats.record_success();
-                consecutive_failures = 0;
-
-                if !was_found {
-                    last_state_change = Instant::now();
-                }
+            let sleep_duration = if is_active {
+                config.active_interval
             } else {
-                consecutive_failures = consecutive_failures.saturating_add(1);
+                config.search_interval
+            };
 
-                if was_found {
-                    last_state_change = Instant::now();
-                }
-            }
-
-            let sleep_duration = Self::calculate_sleep_duration(
-                found,
-                consecutive_failures,
-                last_state_change.elapsed(),
-                &config,
-            );
-
-            if state.interruptible_sleep(sleep_duration) {
-                break;
-            }
+            Self::interruptible_sleep(&state, sleep_duration);
         }
+
+        handle.clear();
     }
 
-    fn calculate_sleep_duration(
-        found: bool,
-        consecutive_failures: u32,
-        time_since_change: Duration,
-        config: &WatcherConfig,
-    ) -> Duration {
-        if found {
-            if time_since_change < Duration::from_secs(5) {
-                config.found_interval / 2
-            } else {
-                config.found_interval
-            }
-        } else {
-            match consecutive_failures {
-                0..=5 => config.search_interval,
-                6..=20 => config.search_interval * 2,
-                21..=50 => Duration::from_secs(2),
-                _ => Duration::from_secs(5)
-            }
+    fn interruptible_sleep(state: &SharedState, duration: Duration) {
+        const CHECK_INTERVAL: Duration = Duration::from_millis(50);
+
+        let mut remaining = duration;
+        while remaining > Duration::ZERO && !state.should_stop() {
+            let sleep_time = remaining.min(CHECK_INTERVAL);
+            thread::sleep(sleep_time);
+            remaining = remaining.saturating_sub(sleep_time);
         }
     }
 }

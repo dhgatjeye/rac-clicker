@@ -1,7 +1,7 @@
-pub mod finder;
-pub mod handle;
-pub mod watcher;
+mod finder;
+mod handle;
+mod watcher;
 
 pub use finder::WindowFinder;
 pub use handle::WindowHandle;
-pub use watcher::{WindowWatcher, WatcherConfig, WatcherStats};
+pub use watcher::{WatcherConfig, WindowWatcher};
