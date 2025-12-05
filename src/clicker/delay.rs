@@ -4,6 +4,10 @@ use crate::core::{MouseButton, ServerType};
 use rand::Rng;
 use std::time::{Duration, Instant};
 
+const MICROS_PER_SECOND: u64 = 1_000_000;
+const PERCENT_BASE: u64 = 100;
+const MICRO_JITTER_RANGE: i64 = 10;
+
 pub struct DelayCalculator {
     pattern: ClickPattern,
     button: MouseButton,
@@ -49,12 +53,12 @@ impl DelayCalculator {
 
             let boost = self.server_timing.first_hit_boost();
             let base_cps_delay = if self.pattern.max_cps == 0 {
-                1_000_000
+                MICROS_PER_SECOND
             } else {
-                1_000_000 / self.pattern.max_cps as u64
+                MICROS_PER_SECOND / self.pattern.max_cps as u64
             };
 
-            let boosted_delay = (base_cps_delay * (100 - boost as u64)) / 100;
+            let boosted_delay = (base_cps_delay * (PERCENT_BASE - boost as u64)) / PERCENT_BASE;
             return Duration::from_micros(boosted_delay);
         }
 
@@ -64,9 +68,9 @@ impl DelayCalculator {
         }
 
         let base_cps_delay = if self.pattern.max_cps == 0 {
-            1_000_000
+            MICROS_PER_SECOND
         } else {
-            1_000_000 / self.pattern.max_cps as u64
+            MICROS_PER_SECOND / self.pattern.max_cps as u64
         };
 
         let (base_down_time, jitter_range) = self.server_timing.hold_duration_us();
@@ -92,10 +96,10 @@ impl DelayCalculator {
 
         let min_delay = match self.pattern.max_cps {
             cps if cps >= hard_limit => {
-                (1_000_000 / hard_limit as u64).saturating_sub(down_time)
+                (MICROS_PER_SECOND / hard_limit as u64).saturating_sub(down_time)
             }
             _ => {
-                (1_000_000 / self.pattern.max_cps.max(min_cps) as u64).saturating_sub(down_time)
+                (MICROS_PER_SECOND / self.pattern.max_cps.max(min_cps) as u64).saturating_sub(down_time)
             }
         };
 
@@ -103,7 +107,7 @@ impl DelayCalculator {
             adjusted_delay = min_delay;
         }
 
-        let micro_jitter = rng.random_range(-10..=10);
+        let micro_jitter = rng.random_range(-MICRO_JITTER_RANGE..=MICRO_JITTER_RANGE);
         adjusted_delay = adjusted_delay.saturating_add_signed(micro_jitter);
 
         Duration::from_micros(adjusted_delay)
