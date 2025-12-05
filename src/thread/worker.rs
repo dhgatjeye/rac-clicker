@@ -1,6 +1,7 @@
 use crate::core::{MouseButton, ClickPattern};
 use crate::thread::sync::{SyncSignal};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -30,7 +31,7 @@ impl WorkerConfig {
 pub struct ClickWorker {
     config: WorkerConfig,
     signal: Arc<SyncSignal>,
-    active: Arc<std::sync::atomic::AtomicBool>,
+    active: Arc<AtomicBool>,
 }
 
 impl ClickWorker {
@@ -38,7 +39,7 @@ impl ClickWorker {
         Self {
             config,
             signal: Arc::new(SyncSignal::new()),
-            active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            active: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -46,12 +47,16 @@ impl ClickWorker {
         Arc::clone(&self.signal)
     }
 
+    pub fn active_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.active)
+    }
+
     pub fn set_active(&self, active: bool) {
-        self.active.store(active, std::sync::atomic::Ordering::Release);
+        self.active.store(active, Ordering::Release);
     }
 
     pub fn is_active(&self) -> bool {
-        self.active.load(std::sync::atomic::Ordering::Acquire)
+        self.active.load(Ordering::Acquire)
     }
 
     pub fn config(&self) -> &WorkerConfig {
