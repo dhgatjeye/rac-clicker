@@ -66,14 +66,29 @@ impl SettingsManager {
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
 
-        let settings: Settings = serde_json::from_str(&contents)
-            .unwrap_or_else(|e| {
-                eprintln!("Warning: Failed to parse settings file: {}", e);
-                eprintln!("Using default settings...");
-                Settings::default()
-            });
+        match serde_json::from_str(&contents) {
+            Ok(settings) => Ok(settings),
+            Err(e) => {
+                self.backup_corrupted_file()?;
+                eprintln!("Warning: Settings file was corrupted: {}", e);
+                eprintln!("A backup was created and default settings will be used.");
+                Ok(Settings::default())
+            }
+        }
+    }
 
-        Ok(settings)
+    fn backup_corrupted_file(&self) -> RacResult<()> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let backup_path = self.settings_path.with_extension(format!("json.corrupt.{}", timestamp));
+
+        std::fs::rename(&self.settings_path, &backup_path)
+            .map_err(|e| RacError::IoError(format!("Failed to backup corrupted settings: {}", e)))?;
+
+        Ok(())
     }
 
     pub fn save(&self, settings: &Settings) -> RacResult<()> {
