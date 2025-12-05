@@ -12,6 +12,12 @@ pub struct HotkeyManager {
     hotkeys: HashMap<i32, bool>
 }
 
+impl Default for HotkeyManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HotkeyManager {
     pub fn new() -> Self {
         Self {

@@ -8,6 +8,12 @@ use std::time::Duration;
 
 pub struct ClickExecutor;
 
+impl Default for ClickExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClickExecutor {
     pub fn new() -> Self {
         Self
