@@ -3,6 +3,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
+
 use crate::clicker::{ClickController, ClickExecutor, DelayCalculator};
 use crate::config::ConfigProfile;
 use crate::core::{MouseButton, RacError, RacResult};
