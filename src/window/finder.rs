@@ -7,81 +7,66 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible};
 use windows::core::BOOL;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 pub struct WindowFinder {
-    target_process: Arc<Mutex<String>>,
-    last_found_pid: Arc<Mutex<Option<u32>>>,
+    target_process: String,
+    cached_pid: AtomicU32,
 }
 
 impl WindowFinder {
     pub fn new(process_name: impl Into<String>) -> Self {
         Self {
-            target_process: Arc::new(Mutex::new(process_name.into())),
-            last_found_pid: Arc::new(Mutex::new(None)),
+            target_process: process_name.into(),
+            cached_pid: AtomicU32::new(0),
         }
     }
-    
+
     pub fn find_window(&self, window_handle: &WindowHandle) -> RacResult<bool> {
-        let target = match self.target_process.lock() {
-            Ok(t) => t.clone(),
-            Err(_) => return Err(RacError::SyncError("Failed to lock target process".to_string())),
-        };
-        
-        let cached_pid = self.last_found_pid.lock().ok().and_then(|p| *p);
-        
-        if let Some(pid) = cached_pid {
-            if let Some(hwnd) = self.find_window_for_pid(pid)? {
+        let cached = self.cached_pid.load(Ordering::Relaxed);
+
+        if cached != 0 {
+            if let Some(hwnd) = self.find_window_for_pid(cached)? {
                 window_handle.set(hwnd);
                 return Ok(true);
-            } else {
-                if let Ok(mut p) = self.last_found_pid.lock() {
-                    *p = None;
-                }
             }
+            self.cached_pid.store(0, Ordering::Relaxed);
         }
-        
-        if let Some(pid) = self.find_process_by_name(&target)? {
-            if let Ok(mut p) = self.last_found_pid.lock() {
-                *p = Some(pid);
-            }
-            
+
+        if let Some(pid) = self.find_process_by_name()? {
+            self.cached_pid.store(pid, Ordering::Relaxed);
+
             if let Some(hwnd) = self.find_window_for_pid(pid)? {
                 window_handle.set(hwnd);
                 return Ok(true);
             }
         }
-        
+
         Ok(false)
     }
-    
-    fn find_process_by_name(&self, process_name: &str) -> RacResult<Option<u32>> {
+
+    fn find_process_by_name(&self) -> RacResult<Option<u32>> {
         unsafe {
             let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
                 .map_err(|e| RacError::WindowError(format!("Failed to create snapshot: {}", e)))?;
 
-            let mut process_entry = PROCESSENTRY32W {
+            let mut entry = PROCESSENTRY32W {
                 dwSize: size_of::<PROCESSENTRY32W>() as u32,
                 ..Default::default()
             };
 
-            if Process32FirstW(snapshot, &mut process_entry).is_ok() {
+            if Process32FirstW(snapshot, &mut entry).is_ok() {
                 loop {
-                    let exe_name = String::from_utf16_lossy(
-                        &process_entry.szExeFile
-                            .iter()
-                            .take_while(|&&c| c != 0)
-                            .copied()
-                            .collect::<Vec<u16>>(),
-                    );
+                    let name_len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+                    let exe_name = String::from_utf16_lossy(&entry.szExeFile[..name_len]);
 
-                    if exe_name.eq_ignore_ascii_case(process_name) {
-                        let pid = process_entry.th32ProcessID;
+                    if exe_name.eq_ignore_ascii_case(&self.target_process) {
+                        let pid = entry.th32ProcessID;
                         let _ = CloseHandle(snapshot);
                         return Ok(Some(pid));
                     }
 
-                    if Process32NextW(snapshot, &mut process_entry).is_err() {
+                    if Process32NextW(snapshot, &mut entry).is_err() {
                         break;
                     }
                 }
@@ -91,7 +76,7 @@ impl WindowFinder {
             Ok(None)
         }
     }
-    
+
     fn find_window_for_pid(&self, pid: u32) -> RacResult<Option<HWND>> {
         let mut data = FindWindowData {
             pid,
@@ -111,13 +96,6 @@ impl WindowFinder {
             Ok(None)
         }
     }
-    
-    pub fn target_process(&self) -> String {
-        self.target_process
-            .lock()
-            .map(|t| t.clone())
-            .unwrap_or_default()
-    }
 }
 
 struct FindWindowData {
@@ -128,15 +106,13 @@ struct FindWindowData {
 unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
     unsafe {
         let data = &mut *(lparam.0 as *mut FindWindowData);
-        
+
         let mut process_id: u32 = 0;
         GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-        
-        if process_id == data.pid {
-            if IsWindowVisible(hwnd).as_bool() {
-                data.hwnd = hwnd;
-                return BOOL(1); 
-            }
+
+        if process_id == data.pid && IsWindowVisible(hwnd).as_bool() {
+            data.hwnd = hwnd;
+            return BOOL(0);
         }
 
         BOOL(1)

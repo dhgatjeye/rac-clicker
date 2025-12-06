@@ -1,249 +1,85 @@
 use crate::window::{WindowFinder, WindowHandle};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-#[derive(Debug, Clone)]
-pub struct WatcherConfig {
-    pub found_interval: Duration,
-    pub search_interval: Duration,
-    pub shutdown_timeout: Duration,
-}
-
-impl Default for WatcherConfig {
-    fn default() -> Self {
-        Self {
-            found_interval: Duration::from_secs(4),
-            search_interval: Duration::from_millis(500),
-            shutdown_timeout: Duration::from_secs(2),
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct WatcherStats {
-    checks: AtomicU64,
-    successful_finds: AtomicU64,
-}
-
-impl WatcherStats {
-    pub fn total_checks(&self) -> u64 {
-        self.checks.load(Ordering::Relaxed)
-    }
-
-    pub fn successful_finds(&self) -> u64 {
-        self.successful_finds.load(Ordering::Relaxed)
-    }
-
-    fn record_check(&self) {
-        self.checks.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn record_success(&self) {
-        self.successful_finds.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-struct WatcherState {
-    should_stop: AtomicBool,
-    is_window_found: AtomicBool,
-    condvar: Condvar,
-    mutex: Mutex<()>,
-}
-
-impl WatcherState {
-    fn new() -> Self {
-        Self {
-            should_stop: AtomicBool::new(false),
-            is_window_found: AtomicBool::new(false),
-            condvar: Condvar::new(),
-            mutex: Mutex::new(()),
-        }
-    }
-
-    fn request_stop(&self) {
-        self.should_stop.store(true, Ordering::Release);
-        self.condvar.notify_all();
-    }
-
-    fn should_stop(&self) -> bool {
-        self.should_stop.load(Ordering::Acquire)
-    }
-
-    fn set_window_found(&self, found: bool) {
-        self.is_window_found.store(found, Ordering::Release);
-    }
-
-    fn is_window_found(&self) -> bool {
-        self.is_window_found.load(Ordering::Acquire)
-    }
-
-    fn interruptible_sleep(&self, duration: Duration) -> bool {
-        if self.should_stop() {
-            return true;
-        }
-
-        let guard = self.mutex.lock().unwrap_or_else(|e| e.into_inner());
-
-        let _ = self.condvar.wait_timeout_while(
-            guard,
-            duration,
-            |_| !self.should_stop()
-        );
-
-
-        self.should_stop()
-    }
-}
+const SEARCH_INTERVAL: Duration = Duration::from_millis(500);
+const FOUND_INTERVAL: Duration = Duration::from_secs(5);
 
 pub struct WindowWatcher {
-    state: Arc<WatcherState>,
-    stats: Arc<WatcherStats>,
-    config: WatcherConfig,
+    stop_signal: Arc<AtomicBool>,
+    condvar: Arc<(Mutex<()>, Condvar)>,
     handle: Option<JoinHandle<()>>,
-    window_finder: Arc<WindowFinder>,
-    window_handle: Arc<WindowHandle>,
 }
 
 impl WindowWatcher {
-    pub fn new(window_finder: Arc<WindowFinder>, window_handle: Arc<WindowHandle>) -> Self {
-        Self::with_config(window_finder, window_handle, WatcherConfig::default())
-    }
+    pub fn new(finder: Arc<WindowFinder>, window_handle: Arc<WindowHandle>) -> Self {
+        let stop_signal = Arc::new(AtomicBool::new(false));
+        let condvar = Arc::new((Mutex::new(()), Condvar::new()));
 
-    pub fn with_config(
-        window_finder: Arc<WindowFinder>,
-        window_handle: Arc<WindowHandle>,
-        config: WatcherConfig,
-    ) -> Self {
-        Self {
-            state: Arc::new(WatcherState::new()),
-            stats: Arc::new(WatcherStats::default()),
-            config,
-            handle: None,
-            window_finder,
-            window_handle,
-        }
-    }
+        let stop = Arc::clone(&stop_signal);
+        let cv = Arc::clone(&condvar);
 
-    pub fn start(&mut self) {
-        if self.handle.is_some() {
-            return;
-        }
-
-        let state = Arc::clone(&self.state);
-        let stats = Arc::clone(&self.stats);
-        let config = self.config.clone();
-        let finder = Arc::clone(&self.window_finder);
-        let handle = Arc::clone(&self.window_handle);
-
-        let thread_handle = thread::Builder::new()
+        let handle = thread::Builder::new()
             .name("RacWindowWatcher".to_string())
             .spawn(move || {
-                Self::watcher_loop(state, stats, config, finder, handle);
+                Self::watch_loop(finder, window_handle, stop, cv);
             })
-            .expect("Failed to spawn window watcher thread");
+            .ok();
 
-        self.handle = Some(thread_handle);
+        Self {
+            stop_signal,
+            condvar,
+            handle,
+        }
     }
 
     pub fn stop(&mut self) {
-        self.state.request_stop();
+        self.stop_signal.store(true, Ordering::Release);
+        self.condvar.1.notify_all();
 
         if let Some(handle) = self.handle.take() {
-            let start = Instant::now();
-            while !handle.is_finished() {
-                if start.elapsed() > self.config.shutdown_timeout {
-                    break;
-                }
-            }
-
-            if handle.is_finished() {
-                let _ = handle.join();
-            }
+            let _ = handle.join();
         }
     }
 
-    pub fn is_running(&self) -> bool {
-        self.handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
-    }
-
-    pub fn is_window_found(&self) -> bool {
-        self.state.is_window_found()
-    }
-
-    pub fn stats(&self) -> &WatcherStats {
-        &self.stats
-    }
-
-    fn watcher_loop(
-        state: Arc<WatcherState>,
-        stats: Arc<WatcherStats>,
-        config: WatcherConfig,
+    fn watch_loop(
         finder: Arc<WindowFinder>,
-        handle: Arc<WindowHandle>,
+        window_handle: Arc<WindowHandle>,
+        stop: Arc<AtomicBool>,
+        cv: Arc<(Mutex<()>, Condvar)>,
     ) {
-        let mut consecutive_failures = 0u32;
-        let mut last_state_change = Instant::now();
+        let mut was_found = false;
 
-        while !state.should_stop() {
-            stats.record_check();
+        while !stop.load(Ordering::Acquire) {
+            let found = finder.find_window(&window_handle).unwrap_or(false);
 
-            let found = finder.find_window(&handle).unwrap_or_else(|_| {
-                false
-            });
+            let interval = if found { FOUND_INTERVAL } else { SEARCH_INTERVAL };
 
-            let was_found = state.is_window_found();
-            state.set_window_found(found);
-
-            if found {
-                stats.record_success();
-                consecutive_failures = 0;
-
-                if !was_found {
-                    last_state_change = Instant::now();
-                }
-            } else {
-                consecutive_failures = consecutive_failures.saturating_add(1);
-
-                if was_found {
-                    last_state_change = Instant::now();
-                }
+            if found != was_found {
+                was_found = found;
             }
 
-            let sleep_duration = Self::calculate_sleep_duration(
-                found,
-                consecutive_failures,
-                last_state_change.elapsed(),
-                &config,
-            );
-
-            if state.interruptible_sleep(sleep_duration) {
+            if Self::interruptible_sleep(&stop, &cv, interval) {
                 break;
             }
         }
     }
 
-    fn calculate_sleep_duration(
-        found: bool,
-        consecutive_failures: u32,
-        time_since_change: Duration,
-        config: &WatcherConfig,
-    ) -> Duration {
-        if found {
-            if time_since_change < Duration::from_secs(5) {
-                config.found_interval / 2
-            } else {
-                config.found_interval
-            }
-        } else {
-            match consecutive_failures {
-                0..=5 => config.search_interval,
-                6..=20 => config.search_interval * 2,
-                21..=50 => Duration::from_secs(2),
-                _ => Duration::from_secs(5)
-            }
+    fn interruptible_sleep(
+        stop: &AtomicBool,
+        cv: &(Mutex<()>, Condvar),
+        duration: Duration,
+    ) -> bool {
+        if stop.load(Ordering::Acquire) {
+            return true;
         }
+
+        let guard = cv.0.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = cv.1.wait_timeout_while(guard, duration, |_| !stop.load(Ordering::Acquire));
+
+        stop.load(Ordering::Acquire)
     }
 }
 

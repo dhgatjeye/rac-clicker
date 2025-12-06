@@ -1,26 +1,24 @@
 use windows::Win32::Foundation::HWND;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicPtr, Ordering};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WindowHandle {
-    hwnd: Arc<Mutex<HWND>>,
+    hwnd: AtomicPtr<std::ffi::c_void>,
 }
 
 impl WindowHandle {
     pub fn new() -> Self {
         Self {
-            hwnd: Arc::new(Mutex::new(HWND(std::ptr::null_mut()))),
+            hwnd: AtomicPtr::new(std::ptr::null_mut()),
         }
     }
-
+    
     pub fn get(&self) -> HWND {
-        *self.hwnd.lock().unwrap_or_else(|e| e.into_inner())
+        HWND(self.hwnd.load(Ordering::Acquire))
     }
-
+    
     pub fn set(&self, hwnd: HWND) {
-        if let Ok(mut guard) = self.hwnd.lock() {
-            *guard = hwnd;
-        }
+        self.hwnd.store(hwnd.0, Ordering::Release);
     }
 }
 

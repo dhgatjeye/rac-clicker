@@ -29,7 +29,7 @@ pub use clicker::{
 
 pub use window::{
     WindowFinder, WindowHandle,
-    WindowWatcher, WatcherConfig, WatcherStats,
+    WindowWatcher,
 };
 
 pub use input::{
