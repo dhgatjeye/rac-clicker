@@ -3,6 +3,23 @@ use crate::thread::sync::{SyncSignal};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[repr(align(64))]
+struct CacheAlignedAtomicBool(AtomicBool);
+
+impl CacheAlignedAtomicBool {
+    fn new(value: bool) -> Self {
+        Self(AtomicBool::new(value))
+    }
+
+    fn load(&self, ordering: Ordering) -> bool {
+        self.0.load(ordering)
+    }
+
+    fn store(&self, value: bool, ordering: Ordering) {
+        self.0.store(value, ordering)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     pub button: MouseButton,
@@ -31,7 +48,7 @@ impl WorkerConfig {
 pub struct ClickWorker {
     config: WorkerConfig,
     signal: Arc<SyncSignal>,
-    active: Arc<AtomicBool>,
+    active: Arc<CacheAlignedAtomicBool>
 }
 
 impl ClickWorker {
@@ -39,7 +56,7 @@ impl ClickWorker {
         Self {
             config,
             signal: Arc::new(SyncSignal::new()),
-            active: Arc::new(AtomicBool::new(false)),
+            active: Arc::new(CacheAlignedAtomicBool::new(false))
         }
     }
 
