@@ -41,7 +41,10 @@ impl Drop for AnimationGuard {
     fn drop(&mut self) {
         self.stop();
         if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+            if let Err(_e) = handle.join() {
+                #[cfg(debug_assertions)]
+                eprintln!("Animation thread panicked: {:?}", _e);
+            }
         }
     }
 }
@@ -228,7 +231,10 @@ fn download_and_install_update(
                 println!("RAC will continue with current version.\n");
                 thread::sleep(Duration::from_secs(2));
                 
-                let _ = download_handle.join();
+                if let Err(_e) = download_handle.join() {
+                    #[cfg(debug_assertions)]
+                    eprintln!("Download thread panicked after error: {:?}", _e);
+                }
                 return Ok(());
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {

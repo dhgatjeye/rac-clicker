@@ -54,7 +54,7 @@ impl RacApp {
         self.start_workers()?;
 
         println!("→ Starting window watcher...");
-        self.start_window_watcher();
+        self.start_window_watcher()?;
 
         println!("→ Starting input monitor...");
         self.start_input_monitor()?;
@@ -169,12 +169,15 @@ impl RacApp {
         Ok(())
     }
 
-    fn start_window_watcher(&mut self) {
+    fn start_window_watcher(&mut self) -> RacResult<()> {
         let watcher = WindowWatcher::new(
             Arc::clone(&self.window_finder),
             Arc::clone(&self.window_handle),
-        );
+        )
+        .map_err(|e| RacError::ThreadError(format!("Failed to start window watcher: {}", e)))?;
+
         self.window_watcher = Some(watcher);
+        Ok(())
     }
 
     fn start_input_monitor(&mut self) -> RacResult<()> {
@@ -227,7 +230,10 @@ impl RacApp {
     fn shutdown(&mut self) {
         self.input_monitor_stop.store(true, Ordering::Release);
         if let Some(handle) = self.input_monitor_handle.take() {
-            let _ = handle.join();
+            if let Err(_e) = handle.join() {
+                #[cfg(debug_assertions)]
+                eprintln!("Input monitor thread panicked: {:?}", _e);
+            }
         }
 
         if let Some(ref mut watcher) = self.window_watcher {
