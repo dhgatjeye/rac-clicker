@@ -27,7 +27,7 @@ impl ConsoleMenu {
     
     pub fn show_main_menu(&mut self) -> RacResult<()> {
         loop {
-            self.set_console_title("RAC v2 - Main Menu")?;
+            self.set_console_title("RAC v2 Main Menu")?;
             ScreenUtils::clear_console();
 
             self.display_main_menu();

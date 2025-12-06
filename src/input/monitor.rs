@@ -3,11 +3,12 @@ use crate::input::HotkeyManager;
 use crate::thread::ThreadManager;
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::RefCell;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_Q};
-use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
 
 pub struct InputMonitor {
-    hotkey_manager: HotkeyManager,
+    hotkey_manager: RefCell<HotkeyManager>,
     toggle_mode: ToggleMode,
     click_mode: ClickMode,
     toggle_hotkey: i32,
@@ -16,7 +17,6 @@ pub struct InputMonitor {
     rac_enabled: bool,
     should_stop: Arc<AtomicBool>,
     exit_signal: Arc<(Mutex<bool>, Condvar)>,
-    rac_window: isize
 }
 
 impl InputMonitor {
@@ -27,8 +27,7 @@ impl InputMonitor {
         right_hotkey: i32,
         toggle_hotkey: i32,
         should_stop: Arc<AtomicBool>,
-        exit_signal: Arc<(Mutex<bool>, Condvar)>,
-        rac_window: isize
+        exit_signal: Arc<(Mutex<bool>, Condvar)>
     ) -> Self {
         let mut hotkey_manager = HotkeyManager::new();
 
@@ -43,7 +42,7 @@ impl InputMonitor {
         }
 
         Self {
-            hotkey_manager,
+            hotkey_manager: RefCell::new(hotkey_manager),
             toggle_mode,
             click_mode,
             toggle_hotkey,
@@ -51,8 +50,7 @@ impl InputMonitor {
             right_hotkey,
             rac_enabled: false,
             should_stop,
-            exit_signal,
-            rac_window,
+            exit_signal
         }
     }
 
@@ -64,7 +62,19 @@ impl InputMonitor {
     fn is_rac_focused(&self) -> bool {
         unsafe {
             let foreground = GetForegroundWindow();
-            foreground.0 as isize == self.rac_window
+            if foreground.0.is_null() {
+                return false;
+            }
+
+            let mut title: [u16; 512] = [0; 512];
+            let len = GetWindowTextW(foreground, &mut title);
+
+            if len > 0 {
+                let title_str = String::from_utf16_lossy(&title[..len as usize]);
+                return title_str.contains("RAC v2 Main Menu");
+            }
+
+            false
         }
     }
 
@@ -74,28 +84,7 @@ impl InputMonitor {
 
         if auto_enable {
             self.rac_enabled = true;
-
-            let tm = match thread_manager.lock() {
-                Ok(tm) => tm,
-                Err(_) => return,
-            };
-
-            if self.click_mode.is_left_active() {
-                let _ = tm.start_signal(MouseButton::Left);
-                if self.toggle_mode == ToggleMode::MouseHold {
-                    if let Some(worker) = tm.get_worker(MouseButton::Left) {
-                        worker.set_active(true);
-                    }
-                }
-            }
-            if self.click_mode.is_right_active() {
-                let _ = tm.start_signal(MouseButton::Right);
-                if self.toggle_mode == ToggleMode::MouseHold {
-                    if let Some(worker) = tm.get_worker(MouseButton::Right) {
-                        worker.set_active(true);
-                    }
-                }
-            }
+            self.enable_workers(&thread_manager);
         }
 
         loop {
@@ -103,107 +92,151 @@ impl InputMonitor {
                 break;
             }
 
-            unsafe {
-                let ctrl_pressed = GetAsyncKeyState(VK_CONTROL.0 as i32) < 0;
-                let q_pressed = GetAsyncKeyState(VK_Q.0 as i32) < 0;
-
-                if ctrl_pressed && q_pressed && self.is_rac_focused() {
-                    let (lock, cvar) = &*self.exit_signal;
-                    if let Ok(mut exit_requested) = lock.lock() {
-                        *exit_requested = true;
-                        cvar.notify_all();
-                    }
-                    break;
-                }
+            if self.check_exit_hotkey() {
+                self.trigger_exit();
+                break;
             }
 
             if self.toggle_hotkey != 0 {
-                if self.hotkey_manager.check_toggle(self.toggle_hotkey) {
-                    self.rac_enabled = !self.rac_enabled;
-
-                    let tm = match thread_manager.lock() {
-                        Ok(tm) => tm,
-                        Err(_) => continue,
-                    };
-
-                    if self.rac_enabled {
-                        if self.click_mode.is_left_active() {
-                            let _ = tm.start_signal(MouseButton::Left);
-                            if self.toggle_mode == ToggleMode::MouseHold {
-                                if let Some(worker) = tm.get_worker(MouseButton::Left) {
-                                    worker.set_active(true);
-                                }
-                            }
-                        }
-                        if self.click_mode.is_right_active() {
-                            let _ = tm.start_signal(MouseButton::Right);
-                            if self.toggle_mode == ToggleMode::MouseHold {
-                                if let Some(worker) = tm.get_worker(MouseButton::Right) {
-                                    worker.set_active(true);
-                                }
-                            }
-                        }
-                    } else {
-                        let _ = tm.pause_signal(MouseButton::Left);
-                        let _ = tm.pause_signal(MouseButton::Right);
-                        if let Some(worker) = tm.get_worker(MouseButton::Left) {
-                            worker.set_active(false);
-                        }
-                        if let Some(worker) = tm.get_worker(MouseButton::Right) {
-                            worker.set_active(false);
-                        }
-                    }
-                }
+                self.process_toggle_key(&thread_manager);
             }
 
             if self.rac_enabled {
-                let tm = match thread_manager.lock() {
-                    Ok(tm) => tm,
-                    Err(_) => continue,
-                };
+                self.process_action_keys(&thread_manager);
+            }
+        }
+    }
 
-                match self.toggle_mode {
-                    ToggleMode::HotkeyHold => {
-                        if self.click_mode.is_left_active() && self.left_hotkey != 0 {
-                            if let Some(worker) = tm.get_worker(MouseButton::Left) {
-                                worker.set_active(self.hotkey_manager.is_pressed(self.left_hotkey));
-                            }
-                        }
+    #[inline(always)]
+    fn check_exit_hotkey(&self) -> bool {
+        unsafe {
+            let ctrl_pressed = GetAsyncKeyState(VK_CONTROL.0 as i32) < 0;
+            let q_pressed = GetAsyncKeyState(VK_Q.0 as i32) < 0;
 
-                        if self.click_mode.is_right_active() && self.right_hotkey != 0 {
-                            if let Some(worker) = tm.get_worker(MouseButton::Right) {
-                                worker.set_active(self.hotkey_manager.is_pressed(self.right_hotkey));
-                            }
-                        }
-                    }
-                    ToggleMode::MouseHold => {
-                        let same_hotkey = self.left_hotkey != 0
-                            && self.left_hotkey == self.right_hotkey;
+            ctrl_pressed && q_pressed && self.is_rac_focused()
+        }
+    }
 
-                        if self.click_mode.is_left_active() && self.left_hotkey != 0 {
-                            if self.hotkey_manager.check_toggle(self.left_hotkey) {
-                                if let Some(worker) = tm.get_worker(MouseButton::Left) {
-                                    let current = worker.is_active();
-                                    worker.set_active(!current);
-                                }
-                                if same_hotkey && self.click_mode.is_right_active() {
-                                    if let Some(worker) = tm.get_worker(MouseButton::Right) {
-                                        let current = worker.is_active();
-                                        worker.set_active(!current);
-                                    }
-                                }
-                            }
-                        } else if self.click_mode.is_right_active() && self.right_hotkey != 0 {
-                            if self.hotkey_manager.check_toggle(self.right_hotkey) {
-                                if let Some(worker) = tm.get_worker(MouseButton::Right) {
-                                    let current = worker.is_active();
-                                    worker.set_active(!current);
-                                }
-                            }
-                        }
+    fn trigger_exit(&self) {
+        let (lock, cvar) = &*self.exit_signal;
+        if let Ok(mut exit_requested) = lock.lock() {
+            *exit_requested = true;
+            cvar.notify_all();
+        }
+    }
+
+    fn process_toggle_key(&mut self, thread_manager: &Arc<Mutex<ThreadManager>>) {
+        if self.hotkey_manager.borrow_mut().check_toggle(self.toggle_hotkey) {
+            self.rac_enabled = !self.rac_enabled;
+
+            let tm = match thread_manager.lock() {
+                Ok(tm) => tm,
+                Err(_) => return,
+            };
+
+            if self.rac_enabled {
+                self.start_workers(&tm);
+            } else {
+                self.stop_workers(&tm);
+            }
+        }
+    }
+
+    fn process_action_keys(&mut self, thread_manager: &Arc<Mutex<ThreadManager>>) {
+        let tm = match thread_manager.lock() {
+            Ok(tm) => tm,
+            Err(_) => return,
+        };
+
+        match self.toggle_mode {
+            ToggleMode::HotkeyHold => {
+                self.process_hotkey_hold_mode(&tm);
+            }
+            ToggleMode::MouseHold => {
+                self.process_mouse_hold_mode(&tm);
+            }
+        }
+    }
+
+    fn process_hotkey_hold_mode(&self, tm: &ThreadManager) {
+        if self.click_mode.is_left_active() && self.left_hotkey != 0 {
+            if let Some(worker) = tm.get_worker(MouseButton::Left) {
+                worker.set_active(self.hotkey_manager.borrow().is_pressed(self.left_hotkey));
+            }
+        }
+
+        if self.click_mode.is_right_active() && self.right_hotkey != 0 {
+            if let Some(worker) = tm.get_worker(MouseButton::Right) {
+                worker.set_active(self.hotkey_manager.borrow().is_pressed(self.right_hotkey));
+            }
+        }
+    }
+
+    fn process_mouse_hold_mode(&self, tm: &ThreadManager) {
+        let same_hotkey = self.left_hotkey != 0 && self.left_hotkey == self.right_hotkey;
+
+        if self.click_mode.is_left_active() && self.left_hotkey != 0 {
+            if self.hotkey_manager.borrow_mut().check_toggle(self.left_hotkey) {
+                if let Some(worker) = tm.get_worker(MouseButton::Left) {
+                    let current = worker.is_active();
+                    worker.set_active(!current);
+                }
+
+                if same_hotkey && self.click_mode.is_right_active() {
+                    if let Some(worker) = tm.get_worker(MouseButton::Right) {
+                        let current = worker.is_active();
+                        worker.set_active(!current);
                     }
                 }
             }
+        } else if self.click_mode.is_right_active() && self.right_hotkey != 0 {
+            if self.hotkey_manager.borrow_mut().check_toggle(self.right_hotkey) {
+                if let Some(worker) = tm.get_worker(MouseButton::Right) {
+                    let current = worker.is_active();
+                    worker.set_active(!current);
+                }
+            }
+        }
+    }
+
+    fn enable_workers(&self, thread_manager: &Arc<Mutex<ThreadManager>>) {
+        let tm = match thread_manager.lock() {
+            Ok(tm) => tm,
+            Err(_) => return,
+        };
+
+        self.start_workers(&tm);
+    }
+
+    fn start_workers(&self, tm: &ThreadManager) {
+        if self.click_mode.is_left_active() {
+            let _ = tm.start_signal(MouseButton::Left);
+            if self.toggle_mode == ToggleMode::MouseHold {
+                if let Some(worker) = tm.get_worker(MouseButton::Left) {
+                    worker.set_active(true);
+                }
+            }
+        }
+
+        if self.click_mode.is_right_active() {
+            let _ = tm.start_signal(MouseButton::Right);
+            if self.toggle_mode == ToggleMode::MouseHold {
+                if let Some(worker) = tm.get_worker(MouseButton::Right) {
+                    worker.set_active(true);
+                }
+            }
+        }
+    }
+
+    fn stop_workers(&self, tm: &ThreadManager) {
+        let _ = tm.pause_signal(MouseButton::Left);
+        let _ = tm.pause_signal(MouseButton::Right);
+
+        if let Some(worker) = tm.get_worker(MouseButton::Left) {
+            worker.set_active(false);
+        }
+        if let Some(worker) = tm.get_worker(MouseButton::Right) {
+            worker.set_active(false);
         }
     }
 }
