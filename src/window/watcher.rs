@@ -14,7 +14,7 @@ pub struct WindowWatcher {
 }
 
 impl WindowWatcher {
-    pub fn new(finder: Arc<WindowFinder>, window_handle: Arc<WindowHandle>) -> Self {
+    pub fn new(finder: Arc<WindowFinder>, window_handle: Arc<WindowHandle>) -> std::io::Result<Self> {
         let stop_signal = Arc::new(AtomicBool::new(false));
         let condvar = Arc::new((Mutex::new(()), Condvar::new()));
 
@@ -25,14 +25,13 @@ impl WindowWatcher {
             .name("RacWindowWatcher".to_string())
             .spawn(move || {
                 Self::watch_loop(finder, window_handle, stop, cv);
-            })
-            .ok();
+            })?;
 
-        Self {
+        Ok(Self {
             stop_signal,
             condvar,
-            handle,
-        }
+            handle: Some(handle),
+        })
     }
 
     pub fn stop(&mut self) {
@@ -40,7 +39,10 @@ impl WindowWatcher {
         self.condvar.1.notify_all();
 
         if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+            if let Err(_e) = handle.join() {
+                #[cfg(debug_assertions)]
+                eprintln!("WindowWatcher thread panicked: {:?}", _e);
+            }
         }
     }
 
