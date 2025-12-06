@@ -4,6 +4,7 @@ use crate::thread::ThreadManager;
 use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_Q};
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
 pub struct InputMonitor {
     hotkey_manager: HotkeyManager,
@@ -15,6 +16,7 @@ pub struct InputMonitor {
     rac_enabled: bool,
     should_stop: Arc<AtomicBool>,
     exit_signal: Arc<(Mutex<bool>, Condvar)>,
+    rac_window: isize
 }
 
 impl InputMonitor {
@@ -26,6 +28,7 @@ impl InputMonitor {
         toggle_hotkey: i32,
         should_stop: Arc<AtomicBool>,
         exit_signal: Arc<(Mutex<bool>, Condvar)>,
+        rac_window: isize
     ) -> Self {
         let mut hotkey_manager = HotkeyManager::new();
 
@@ -49,6 +52,7 @@ impl InputMonitor {
             rac_enabled: false,
             should_stop,
             exit_signal,
+            rac_window,
         }
     }
 
@@ -56,7 +60,15 @@ impl InputMonitor {
         self.should_stop.load(Ordering::Acquire)
     }
 
-    pub fn monitor_loop(&mut self, thread_manager: Arc<std::sync::Mutex<ThreadManager>>) {
+    #[inline(always)]
+    fn is_rac_focused(&self) -> bool {
+        unsafe {
+            let foreground = GetForegroundWindow();
+            foreground.0 as isize == self.rac_window
+        }
+    }
+
+    pub fn monitor_loop(&mut self, thread_manager: Arc<Mutex<ThreadManager>>) {
         let auto_enable = self.toggle_hotkey == 0
             && (self.left_hotkey != 0 || self.right_hotkey != 0);
 
@@ -90,16 +102,16 @@ impl InputMonitor {
             if self.should_stop() {
                 break;
             }
-            
+
             unsafe {
                 let ctrl_pressed = GetAsyncKeyState(VK_CONTROL.0 as i32) < 0;
                 let q_pressed = GetAsyncKeyState(VK_Q.0 as i32) < 0;
-                
-                if ctrl_pressed && q_pressed {
+
+                if ctrl_pressed && q_pressed && self.is_rac_focused() {
                     let (lock, cvar) = &*self.exit_signal;
                     if let Ok(mut exit_requested) = lock.lock() {
                         *exit_requested = true;
-                        cvar.notify_all(); 
+                        cvar.notify_all();
                     }
                     break;
                 }

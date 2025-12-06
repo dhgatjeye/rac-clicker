@@ -3,7 +3,6 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
-
 use crate::clicker::{ClickController, ClickExecutor, DelayCalculator};
 use crate::config::ConfigProfile;
 use crate::core::{MouseButton, RacError, RacResult};
@@ -185,6 +184,8 @@ impl RacApp {
         let stop_signal = Arc::clone(&self.input_monitor_stop);
         let exit_signal = Arc::clone(&self.exit_signal);
 
+        let rac_hwnd = self.get_rac_window_handle()?;
+
         let mut input_monitor = InputMonitor::with_stop_signal(
             settings.toggle_mode,
             settings.click_mode,
@@ -193,6 +194,7 @@ impl RacApp {
             settings.toggle_hotkey,
             stop_signal,
             exit_signal,
+            rac_hwnd
         );
 
         let thread_manager = Arc::clone(&self.thread_manager);
@@ -208,17 +210,34 @@ impl RacApp {
         Ok(())
     }
 
+    fn get_rac_window_handle(&self) -> RacResult<isize> {
+        use windows::Win32::System::Console::GetConsoleWindow;
+
+        unsafe {
+            let hwnd = GetConsoleWindow();
+            let handle_value = hwnd.0 as isize;
+
+            if handle_value == 0 {
+                return Err(RacError::WindowError(
+                    "Failed to get RAC console window handle".to_string()
+                ));
+            }
+
+            Ok(handle_value)
+        }
+    }
+
     fn main_loop(&mut self) -> RacResult<()> {
         let exit_signal = Arc::clone(&self.exit_signal);
         let (lock, cvar) = &*exit_signal;
         let mut exit_requested = lock.lock().unwrap_or_else(|e| e.into_inner());
-        
+
         while !*exit_requested {
             exit_requested = cvar.wait(exit_requested).unwrap_or_else(|e| e.into_inner());
         }
-        
+
         drop(exit_requested);
-        
+
         println!("\n✓ Ctrl+Q detected - Stopping RAC v2...");
         self.shutdown();
         thread::sleep(Duration::from_millis(500));
