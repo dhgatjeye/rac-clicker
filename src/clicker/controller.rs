@@ -43,17 +43,22 @@ impl ClickController {
                     worker.is_active()
                 }
                 ToggleMode::MouseHold => {
-                    let is_pressed = self.is_button_pressed(worker.config().button);
-
-                    if last_button_state && !is_pressed {
-                        delay_calc.reset_on_release();
+                    if !worker.is_active() {
                         last_button_state = false;
-                        std::thread::yield_now();
-                        continue;
-                    }
+                        false
+                    } else {
+                        let is_pressed = self.is_button_pressed(worker.config().button);
 
-                    last_button_state = is_pressed;
-                    is_pressed && worker.signal().is_running() && worker.is_active()
+                        if last_button_state && !is_pressed {
+                            delay_calc.reset_on_release();
+                            last_button_state = false;
+                            std::thread::yield_now();
+                            continue;
+                        }
+
+                        last_button_state = is_pressed;
+                        is_pressed
+                    }
                 }
             };
 
