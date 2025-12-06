@@ -1,4 +1,5 @@
 use crate::core::{RacResult, RacError, MouseButton};
+use crate::thread::sync::SmartSleep;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageA, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP,
@@ -32,7 +33,7 @@ impl ClickExecutor {
             PostMessageA(Some(hwnd), down_msg, WPARAM(flags.0 as usize), LPARAM(0))
                 .map_err(|e| RacError::WindowError(format!("Failed to send button down: {}", e)))?;
 
-            std::thread::sleep(hold_duration);
+            SmartSleep::sleep(hold_duration);
 
             PostMessageA(Some(hwnd), up_msg, WPARAM(0), LPARAM(0))
                 .map_err(|e| RacError::WindowError(format!("Failed to send button up: {}", e)))?;
