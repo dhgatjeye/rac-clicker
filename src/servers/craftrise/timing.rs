@@ -3,10 +3,10 @@ use crate::servers::ServerTiming;
 pub struct CraftriseTiming;
 
 impl ServerTiming for CraftriseTiming {
-    /// Hold duration: 85µs ± 10µs (75-95µs range)
-    /// Optimal for Craftrise hit detection
+    /// Hold duration: 60µs ± 8µs (52-68µs range)
+    /// Optimized for maximum CPS and momentum
     fn hold_duration_us(&self) -> (u64, i64) {
-        (85, 10)  // base: 85µs, jitter: ±10µs
+        (60, 8)  // base: 60µs (was 85µs), jitter: ±8µs
     }
 
     /// Combo pattern enabled for better PvP performance
@@ -19,15 +19,16 @@ impl ServerTiming for CraftriseTiming {
         4
     }
     
-    /// Combo pause: 5-8ms micro-pause
-    /// Breaks opponent's timing, improves hit registration
+    /// Combo pause: DISABLED for CraftRise
+    /// No pause = sustained pressure, no momentum loss
+    /// Prevents opponent counter-hitting during pause windows
     fn combo_pause_us(&self) -> (u64, u64) {
-        (5000, 8000)  // 5-8ms in microseconds
+        (0, 0)  // No pause (was 5-8ms)
     }
     
-    /// First hit 10% faster for engagement advantage
+    /// First hit 7% faster -
     fn first_hit_boost(&self) -> u8 {
-        10  // 10% speed boost
+        7  // 7% speed boost
     }
     
     /// 170ms penalty after button release
