@@ -1,9 +1,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_Q};
 
 use crate::clicker::{ClickController, ClickExecutor, DelayCalculator};
 use crate::config::ConfigProfile;
@@ -20,6 +19,7 @@ pub struct RacApp {
     window_watcher: Option<WindowWatcher>,
     input_monitor_stop: Arc<AtomicBool>,
     input_monitor_handle: Option<thread::JoinHandle<()>>,
+    exit_signal: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl Drop for RacApp {
@@ -40,6 +40,7 @@ impl RacApp {
             window_watcher: None,
             input_monitor_stop: Arc::new(AtomicBool::new(false)),
             input_monitor_handle: None,
+            exit_signal: Arc::new((Mutex::new(false), Condvar::new())),
         })
     }
 
@@ -169,17 +170,17 @@ impl RacApp {
     }
 
     fn start_window_watcher(&mut self) {
-        let mut watcher = WindowWatcher::new(
+        let watcher = WindowWatcher::new(
             Arc::clone(&self.window_finder),
             Arc::clone(&self.window_handle),
         );
-        watcher.start();
         self.window_watcher = Some(watcher);
     }
 
     fn start_input_monitor(&mut self) -> RacResult<()> {
         let settings = &self.profile.settings;
         let stop_signal = Arc::clone(&self.input_monitor_stop);
+        let exit_signal = Arc::clone(&self.exit_signal);
 
         let mut input_monitor = InputMonitor::with_stop_signal(
             settings.toggle_mode,
@@ -188,6 +189,7 @@ impl RacApp {
             settings.right_hotkey,
             settings.toggle_hotkey,
             stop_signal,
+            exit_signal,
         );
 
         let thread_manager = Arc::clone(&self.thread_manager);
@@ -204,26 +206,22 @@ impl RacApp {
     }
 
     fn main_loop(&mut self) -> RacResult<()> {
-        loop {
-            thread::sleep(Duration::from_millis(50));
-
-            if self.is_exit_requested() {
-                println!("\n✓ Ctrl+Q detected - Stopping RAC v2...");
-                self.shutdown();
-                thread::sleep(Duration::from_millis(500));
-                println!("✓ RAC v2 stopped successfully!");
-                println!("✓ Returning to main menu...\n");
-                return Ok(());
-            }
+        let exit_signal = Arc::clone(&self.exit_signal);
+        let (lock, cvar) = &*exit_signal;
+        let mut exit_requested = lock.lock().unwrap_or_else(|e| e.into_inner());
+        
+        while !*exit_requested {
+            exit_requested = cvar.wait(exit_requested).unwrap_or_else(|e| e.into_inner());
         }
-    }
-
-    fn is_exit_requested(&self) -> bool {
-        unsafe {
-            let ctrl_pressed = GetAsyncKeyState(VK_CONTROL.0 as i32) < 0;
-            let q_pressed = GetAsyncKeyState(VK_Q.0 as i32) < 0;
-            ctrl_pressed && q_pressed
-        }
+        
+        drop(exit_requested);
+        
+        println!("\n✓ Ctrl+Q detected - Stopping RAC v2...");
+        self.shutdown();
+        thread::sleep(Duration::from_millis(500));
+        println!("✓ RAC v2 stopped successfully!");
+        println!("✓ Returning to main menu...\n");
+        Ok(())
     }
 
     fn shutdown(&mut self) {

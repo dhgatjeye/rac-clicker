@@ -1,9 +1,9 @@
 use crate::core::{ToggleMode, ClickMode, MouseButton};
 use crate::input::HotkeyManager;
 use crate::thread::ThreadManager;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_Q};
 
 pub struct InputMonitor {
     hotkey_manager: HotkeyManager,
@@ -14,16 +14,18 @@ pub struct InputMonitor {
     right_hotkey: i32,
     rac_enabled: bool,
     should_stop: Arc<AtomicBool>,
+    exit_signal: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl InputMonitor {
     pub fn with_stop_signal(
         toggle_mode: ToggleMode,
         click_mode: ClickMode,
-        toggle_hotkey: i32,
         left_hotkey: i32,
         right_hotkey: i32,
+        toggle_hotkey: i32,
         should_stop: Arc<AtomicBool>,
+        exit_signal: Arc<(Mutex<bool>, Condvar)>,
     ) -> Self {
         let mut hotkey_manager = HotkeyManager::new();
 
@@ -46,6 +48,7 @@ impl InputMonitor {
             right_hotkey,
             rac_enabled: false,
             should_stop,
+            exit_signal,
         }
     }
 
@@ -87,8 +90,20 @@ impl InputMonitor {
             if self.should_stop() {
                 break;
             }
-
-            std::thread::sleep(Duration::from_millis(10));
+            
+            unsafe {
+                let ctrl_pressed = GetAsyncKeyState(VK_CONTROL.0 as i32) < 0;
+                let q_pressed = GetAsyncKeyState(VK_Q.0 as i32) < 0;
+                
+                if ctrl_pressed && q_pressed {
+                    let (lock, cvar) = &*self.exit_signal;
+                    if let Ok(mut exit_requested) = lock.lock() {
+                        *exit_requested = true;
+                        cvar.notify_all(); 
+                    }
+                    break;
+                }
+            }
 
             if self.toggle_hotkey != 0 {
                 if self.hotkey_manager.check_toggle(self.toggle_hotkey) {
