@@ -67,15 +67,15 @@ impl SyncSignal {
     }
 
     pub fn wait_for_running(&self, timeout: Duration) -> bool {
-        if self.is_running() {
-            return true;
-        }
-
         let guard = match self.mutex.lock() {
             Ok(g) => g,
             Err(_) => return false,
         };
-
+        
+        if self.is_running() {
+            return true;
+        }
+        
         let result = self.condvar.wait_timeout_while(
             guard,
             timeout,
@@ -96,7 +96,7 @@ impl SmartSleep {
         if duration.as_micros() < 1 {
             return;
         }
-        
+
         if duration.as_micros() < 1000 {
             let sleep_duration = duration.saturating_mul(58) / 100;
             if sleep_duration.as_micros() > 0 {
@@ -104,12 +104,20 @@ impl SmartSleep {
             }
 
             let deadline = std::time::Instant::now() + duration;
-            while std::time::Instant::now() < deadline {
+            let mut iterations = 0u32;
+
+            loop {
+                if iterations & 0x3F == 0 {
+                    if std::time::Instant::now() >= deadline {
+                        break;
+                    }
+                }
                 std::hint::spin_loop();
+                iterations = iterations.wrapping_add(1);
             }
             return;
         }
-        
+
         std::thread::sleep(duration);
     }
 }
