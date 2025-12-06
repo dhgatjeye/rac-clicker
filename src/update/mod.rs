@@ -12,6 +12,7 @@ use checker::UpdateChecker;
 use downloader::Downloader;
 use installer::UpdateInstaller;
 
+#[derive(Clone)]
 pub struct UpdateManager {
     checker: UpdateChecker,
     downloader: Downloader,

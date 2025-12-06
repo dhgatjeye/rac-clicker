@@ -4,6 +4,7 @@ use std::fs;
 use std::process::Command;
 use std::env;
 
+#[derive(Clone)]
 pub struct UpdateInstaller {
     backup_dir: PathBuf,
 }
@@ -148,7 +149,7 @@ function Invoke-Rollback {{
     public static extern bool ShowWindow(IntPtr hWnd, Int32 nCmdShow);
     '
     $consolePtr = [Console.Window]::GetConsoleWindow()
-    [Console.Window]::ShowWindow($consolePtr, 5) | Out-Null  # SW_SHOW = 5
+    [Console.Window]::ShowWindow($consolePtr, 5) | Out-Null  
 
     Write-Log "Update failed: $Reason" -Level Error
     Write-Log "Initiating rollback..." -Level Warning
@@ -194,12 +195,10 @@ try {{
     Write-Log "Waiting for main process to exit..." -Level Info
     Start-Sleep -Seconds $Config.InitialDelay
 
-    # Validate source file exists
     if (-not (Test-Path $Config.NewExePath)) {{
         Invoke-Rollback "Source update file not found: $($Config.NewExePath)"
     }}
 
-    # Attempt to copy new version
     Write-Log "Installing new version..." -Level Info
     $retryCount = 0
     $success = $false

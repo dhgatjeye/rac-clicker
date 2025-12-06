@@ -52,6 +52,7 @@ impl WinHttpHandle {
     }
 }
 
+#[derive(Clone)]
 pub struct UpdateChecker {
     owner: String,
     repo: String,

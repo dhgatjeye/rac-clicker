@@ -32,6 +32,7 @@ impl WinHttpHandle {
     }
 }
 
+#[derive(Clone)]
 pub struct Downloader;
 
 impl Default for Downloader {
