@@ -82,17 +82,9 @@ pub fn check_and_update() -> RacResult<()> {
         })
         .map_err(|e| RacError::ThreadError(format!("Failed to spawn update checker: {}", e)))?;
     
-    let result = match rx.recv_timeout(Duration::from_secs(3)) {
+    let result = match rx.recv() {
         Ok(check_result) => check_result,
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            animation.stop();
-            thread::sleep(Duration::from_millis(50));
-            println!("\r  Update check timed out (slow network)        ");
-            println!("   Starting RAC normally...\n");
-            thread::sleep(Duration::from_millis(500));
-            Ok(())
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
+        Err(_) => {
             animation.stop();
             thread::sleep(Duration::from_millis(50));
             println!("\r  Update check failed        ");
