@@ -12,6 +12,12 @@ enum DownloadProgress {
     Error(String),
 }
 
+enum UpdateCheckResult {
+    UpdateAvailable(crate::ReleaseInfo),
+    NoUpdate,
+    Error(String),
+}
+
 struct AnimationGuard {
     flag: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
@@ -71,7 +77,7 @@ pub fn check_and_update() -> RacResult<()> {
     io::stdout().flush().ok();
 
     let animation = AnimationGuard::start();
-    
+
     let (tx, rx) = mpsc::channel();
 
     let _check_handle = thread::Builder::new()
@@ -81,7 +87,7 @@ pub fn check_and_update() -> RacResult<()> {
             let _ = tx.send(result);
         })
         .map_err(|e| RacError::ThreadError(format!("Failed to spawn update checker: {}", e)))?;
-    
+
     let result = match rx.recv() {
         Ok(check_result) => check_result,
         Err(_) => {
@@ -90,35 +96,15 @@ pub fn check_and_update() -> RacResult<()> {
             println!("\r  Update check failed        ");
             println!("   Starting RAC normally...\n");
             thread::sleep(Duration::from_millis(500));
-            Ok(())
+            return Ok(());
         }
     };
-    
+
     drop(animation);
-    
+    thread::sleep(Duration::from_millis(50));
+
     match result {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            println!("\r  Could not check for updates: {}        ", e);
-            println!("   Starting RAC normally...\n");
-            thread::sleep(Duration::from_millis(800));
-            Ok(())
-        }
-    }
-}
-
-fn perform_update_check_background() -> RacResult<()> {
-    let update_mgr = match UpdateManager::new() {
-        Ok(mgr) => mgr,
-        Err(e) => {
-            return Err(RacError::UpdateError(format!("Cannot initialize update system: {}", e)));
-        }
-    };
-
-    match update_mgr.check_for_updates() {
-        Ok(Some(release)) => {
-            thread::sleep(Duration::from_millis(50));
-
+        UpdateCheckResult::UpdateAvailable(release) => {
             println!("\r                                            ");
             println!("\n╔══════════════════════════════════════════╗");
             println!("║           NEW UPDATE AVAILABLE!            ║");
@@ -147,24 +133,52 @@ fn perform_update_check_background() -> RacResult<()> {
                 let answer = input.trim().to_lowercase();
 
                 if answer == "y" || answer == "yes" || answer.is_empty() {
+                    let update_mgr = UpdateManager::new()
+                        .map_err(|e| RacError::UpdateError(format!("Cannot initialize update system: {}", e)))?;
+
                     return download_and_install_update(&update_mgr, &release);
                 }
                 println!("\n⏭ Update skipped. Starting RAC...\n");
                 thread::sleep(Duration::from_millis(800));
             }
+            Ok(())
         }
-        Ok(None) => {
-            thread::sleep(Duration::from_millis(50));
+        UpdateCheckResult::NoUpdate => {
             println!("\rYou're up to date! (v{})        ", Version::current());
             thread::sleep(Duration::from_millis(500));
             println!();
+            Ok(())
         }
-        Err(e) => {
-            return Err(e);
+        UpdateCheckResult::Error(e) => {
+            println!("\r  Could not check for updates: {}        ", e);
+            println!("   Starting RAC normally...\n");
+            thread::sleep(Duration::from_millis(800));
+            Ok(())
         }
     }
+}
 
-    Ok(())
+fn perform_update_check_background() -> UpdateCheckResult {
+    let update_mgr = match UpdateManager::new() {
+        Ok(mgr) => mgr,
+        Err(e) => {
+            return UpdateCheckResult::Error(format!("Cannot initialize update system: {}", e));
+        }
+    };
+
+    match update_mgr.check_for_updates() {
+        Ok(Some(release)) => {
+            thread::sleep(Duration::from_millis(50));
+            UpdateCheckResult::UpdateAvailable(release)
+        }
+        Ok(None) => {
+            thread::sleep(Duration::from_millis(50));
+            UpdateCheckResult::NoUpdate
+        }
+        Err(e) => {
+            UpdateCheckResult::Error(format!("{}", e))
+        }
+    }
 }
 
 fn download_and_install_update(
@@ -172,9 +186,9 @@ fn download_and_install_update(
     release: &crate::ReleaseInfo,
 ) -> RacResult<()> {
     println!("\nDownloading update in background...\n");
-    
+
     let (progress_tx, progress_rx): (Sender<DownloadProgress>, Receiver<DownloadProgress>) = mpsc::channel();
-    
+
     let release_clone = release.clone();
     let update_mgr_clone = update_mgr.clone();
 
@@ -185,22 +199,25 @@ fn download_and_install_update(
             let progress_cb = Arc::new(move |current: u64, total: u64| {
                 let _ = tx.send(DownloadProgress::Progress { current, total });
             });
-            
+
             let result = update_mgr_clone.download_and_install(&release_clone, Some(progress_cb));
-            
+
             match &result {
                 Ok(_) => {
+                    let _ = progress_tx.send(DownloadProgress::Complete);
+                }
+                Err(RacError::UpdateRestart) => {
                     let _ = progress_tx.send(DownloadProgress::Complete);
                 }
                 Err(e) => {
                     let _ = progress_tx.send(DownloadProgress::Error(format!("{}", e)));
                 }
             }
-            
+
             result
         })
         .map_err(|e| RacError::ThreadError(format!("Failed to spawn download thread: {}", e)))?;
-    
+
     loop {
         match progress_rx.recv_timeout(Duration::from_millis(100)) {
             Ok(DownloadProgress::Progress { current, total }) => {
@@ -222,7 +239,7 @@ fn download_and_install_update(
                 println!("\n\nUpdate failed: {}", err);
                 println!("RAC will continue with current version.\n");
                 thread::sleep(Duration::from_secs(2));
-                
+
                 if let Err(_e) = download_handle.join() {
                     #[cfg(debug_assertions)]
                     eprintln!("Download thread panicked after error: {:?}", _e);
@@ -240,28 +257,28 @@ fn download_and_install_update(
             }
         }
     }
-    
-    match download_handle.join() {
-        Ok(Ok(_)) => {
+
+    let thread_result = download_handle.join().map_err(|_| {
+        RacError::ThreadError("Download thread panicked".to_string())
+    })?;
+
+    match thread_result {
+        Ok(_) => {
             println!("\n\nUpdate downloaded successfully!");
             println!("Restarting application...\n");
             thread::sleep(Duration::from_secs(1));
             Ok(())
         }
-        Ok(Err(RacError::UpdateRestart)) => {
-            println!("\n\nUpdate installed successfully!");
-            println!("Restarting application...\n");
-            thread::sleep(Duration::from_secs(1));
+        Err(RacError::UpdateRestart) => {
+            println!("\n\n✓ Update process started!");
+            println!("  Application will restart momentarily...\n");
+            io::stdout().flush().ok();
+            thread::sleep(Duration::from_millis(500));
+
             Err(RacError::UpdateRestart)
         }
-        Ok(Err(e)) => {
-            println!("\n\nUpdate failed: {}", e);
-            println!("RAC will continue with current version.\n");
-            thread::sleep(Duration::from_secs(2));
-            Ok(())
-        }
-        Err(_) => {
-            println!("\n\nUpdate thread panicked!");
+        Err(e) => {
+            println!("\n\nUpdate installation failed: {}", e);
             println!("RAC will continue with current version.\n");
             thread::sleep(Duration::from_secs(2));
             Ok(())

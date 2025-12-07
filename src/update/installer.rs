@@ -4,6 +4,8 @@ use std::fs;
 use std::process::Command;
 use std::env;
 
+use windows::Win32::UI::Shell::{SHChangeNotify, SHCNE_UPDATEDIR, SHCNF_FLAGS};
+
 #[derive(Clone)]
 pub struct UpdateInstaller {
     backup_dir: PathBuf,
@@ -18,12 +20,19 @@ impl UpdateInstaller {
             .join("RAC")
             .join("backups");
 
-        if !backup_dir.exists() {
+        let created_new_dir = !backup_dir.exists();
+        if created_new_dir {
             fs::create_dir_all(&backup_dir)
                 .map_err(|e| RacError::UpdateError(format!("Failed to create backup dir: {}", e)))?;
         }
 
-        Ok(Self { backup_dir })
+        let installer = Self { backup_dir };
+
+        if created_new_dir {
+            installer.notify_file_change(&installer.backup_dir);
+        }
+
+        Ok(installer)
     }
 
     pub fn install_update(&self, new_exe_path: &Path) -> RacResult<()> {
@@ -57,6 +66,7 @@ impl UpdateInstaller {
         fs::copy(current_exe, &backup_path)
             .map_err(|e| RacError::UpdateError(format!("Failed to create backup: {}", e)))?;
 
+        self.notify_file_change(&backup_path);
         self.cleanup_old_backups()?;
 
         Ok(backup_path)
@@ -139,17 +149,47 @@ function Write-Log {{
     Write-Host "[$timestamp] [$Level] $Message" -ForegroundColor $colors[$Level]
 }}
 
+function Invoke-ShellNotify {{
+    param(
+        [string]$Path,
+        [switch]$RefreshDesktop
+    )
+
+    try {{
+        Add-Type -TypeDefinition @'
+            using System;
+            using System.Runtime.InteropServices;
+
+            public class ShellNotify {{
+                [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+                public static extern void SHChangeNotify(uint wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+
+                public const uint SHCNE_UPDATEDIR = 0x00001000;
+                public const uint SHCNE_ASSOCCHANGED = 0x08000000;
+                public const uint SHCNF_PATHW = 0x0005;
+                public const uint SHCNF_IDLIST = 0x0000;
+            }}
+'@ -ErrorAction SilentlyContinue
+
+        if ($RefreshDesktop) {{
+            [ShellNotify]::SHChangeNotify([ShellNotify]::SHCNE_ASSOCCHANGED, [ShellNotify]::SHCNF_IDLIST, [IntPtr]::Zero, [IntPtr]::Zero)
+        }}
+        elseif ($Path) {{
+            $parentPath = Split-Path -Parent $Path
+            if ($parentPath) {{
+                $pathPtr = [System.Runtime.InteropServices.Marshal]::StringToHGlobalUni($parentPath)
+                [ShellNotify]::SHChangeNotify([ShellNotify]::SHCNE_UPDATEDIR, [ShellNotify]::SHCNF_PATHW, $pathPtr, [IntPtr]::Zero)
+                [System.Runtime.InteropServices.Marshal]::FreeHGlobal($pathPtr)
+            }}
+        }}
+    }}
+    catch {{
+        Write-Log "Shell notification failed: $_" -Level Warning
+    }}
+}}
+
 function Invoke-Rollback {{
     param([string]$Reason)
-
-    Add-Type -Name Window -Namespace Console -MemberDefinition '
-    [DllImport("Kernel32.dll")]
-    public static extern IntPtr GetConsoleWindow();
-    [DllImport("user32.dll")]
-    public static extern bool ShowWindow(IntPtr hWnd, Int32 nCmdShow);
-    '
-    $consolePtr = [Console.Window]::GetConsoleWindow()
-    [Console.Window]::ShowWindow($consolePtr, 5) | Out-Null  
 
     Write-Log "Update failed: $Reason" -Level Error
     Write-Log "Initiating rollback..." -Level Warning
@@ -157,6 +197,8 @@ function Invoke-Rollback {{
     try {{
         if (Test-Path $Config.BackupPath) {{
             Copy-Item -Path $Config.BackupPath -Destination $Config.CurrentExePath -Force
+            Invoke-ShellNotify -Path $Config.CurrentExePath
+            Invoke-ShellNotify -RefreshDesktop
             Write-Log "Rollback completed successfully" -Level Success
         }} else {{
             Write-Log "Backup file not found. Manual intervention required." -Level Error
@@ -190,10 +232,44 @@ function Remove-UpdateFiles {{
     }}
 }}
 
+function Wait-ForProcessToExit {{
+    param([string]$ExePath)
+
+    $exeName = [System.IO.Path]::GetFileNameWithoutExtension($ExePath)
+    Write-Log "Waiting for $exeName processes to exit..." -Level Info
+
+    $maxWait = 30
+    $waited = 0
+
+    while ($waited -lt $maxWait) {{
+        $processes = @(Get-Process -Name $exeName -ErrorAction SilentlyContinue)
+
+        if ($processes.Count -eq 0) {{
+            Write-Log "All $exeName processes have exited" -Level Success
+            return $true
+        }}
+
+        Write-Log "Found $($processes.Count) running process(es), waiting..." -Level Info
+        Start-Sleep -Seconds 1
+        $waited++
+    }}
+
+    Write-Log "Timeout waiting for processes to exit. Attempting force kill..." -Level Warning
+    Get-Process -Name $exeName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+
+    return $true
+}}
+
 try {{
     Write-Log "RAC Auto-Update Process Started" -Level Info
-    Write-Log "Waiting for main process to exit..." -Level Info
-    Start-Sleep -Seconds $Config.InitialDelay
+
+    if (-not (Wait-ForProcessToExit -ExePath $Config.CurrentExePath)) {{
+        Invoke-Rollback "Could not terminate old process"
+    }}
+
+    Write-Log "Main process terminated successfully" -Level Success
+    Start-Sleep -Seconds 1
 
     if (-not (Test-Path $Config.NewExePath)) {{
         Invoke-Rollback "Source update file not found: $($Config.NewExePath)"
@@ -206,6 +282,7 @@ try {{
     while ($retryCount -lt $Config.MaxRetries) {{
         try {{
             Copy-Item -Path $Config.NewExePath -Destination $Config.NewTargetPath -Force
+            Invoke-ShellNotify -Path $Config.NewTargetPath
             $success = $true
             Write-Log "New version installed successfully" -Level Success
             break
@@ -227,6 +304,7 @@ try {{
         if (Test-Path $Config.CurrentExePath) {{
             try {{
                 Remove-Item -Path $Config.CurrentExePath -Force
+                Invoke-ShellNotify -Path $Config.CurrentExePath
                 Write-Log "Removed old executable: $($Config.CurrentExePath)" -Level Info
             }}
             catch {{
@@ -241,6 +319,10 @@ try {{
     if (-not (Test-Path $Config.NewTargetPath)) {{
         throw "New executable not found at expected location: $($Config.NewTargetPath)"
     }}
+
+    Write-Log "Refreshing explorer..." -Level Info
+    Invoke-ShellNotify -RefreshDesktop
+    Start-Sleep -Milliseconds 500
 
     Write-Log "Restarting application..." -Level Info
     Start-Process -FilePath $Config.NewTargetPath
@@ -303,9 +385,29 @@ catch {{
         backups.reverse();
 
         for backup in backups.iter().skip(1) {
-            let _ = fs::remove_file(backup.path());
+            if fs::remove_file(backup.path()).is_ok() {
+                self.notify_file_change(&backup.path());
+            }
         }
 
         Ok(())
+    }
+
+    fn notify_file_change(&self, path: &Path) {
+        if let Some(parent) = path.parent() {
+            if let Some(path_str) = parent.to_str() {
+                let mut wide: Vec<u16> = path_str.encode_utf16().collect();
+                wide.push(0);
+
+                unsafe {
+                    SHChangeNotify(
+                        SHCNE_UPDATEDIR,
+                        SHCNF_FLAGS(0x0005),
+                        Some(wide.as_ptr() as *const std::ffi::c_void),
+                        None,
+                    );
+                }
+            }
+        }
     }
 }
