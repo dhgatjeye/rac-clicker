@@ -1,6 +1,6 @@
 use crate::core::ClickPattern;
 use crate::core::{MouseButton, ServerType};
-use crate::servers::{get_server_timing, ServerTiming};
+use crate::servers::{ServerTiming, get_server_timing};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::time::{Duration, Instant};
@@ -22,7 +22,6 @@ impl DelayCalculator {
         server_type: ServerType,
     ) -> crate::core::RacResult<Self> {
         let server_timing = get_server_timing(server_type)?;
-
         let mut thread_rng = rand::rng();
         let rng = SmallRng::from_rng(&mut thread_rng);
 
@@ -83,14 +82,10 @@ impl DelayCalculator {
 
         let mut adjusted_delay = base_cps_delay.saturating_sub(down_time);
 
-        if self.server_timing.use_combo_pattern() {
-            let interval = self.server_timing.combo_interval();
-
-            if self.combo_counter == interval - 1 {
-                let (min_pause, max_pause) = self.server_timing.combo_pause_us();
-                let micro_pause = self.rng.random_range(min_pause..=max_pause);
-                adjusted_delay = adjusted_delay.saturating_add(micro_pause);
-            }
+        if self.server_timing.use_combo_pattern() && self.combo_counter == 0 {
+            let (min_pause, max_pause) = self.server_timing.combo_pause_us();
+            let micro_pause = self.rng.random_range(min_pause..=max_pause);
+            adjusted_delay = adjusted_delay.saturating_add(micro_pause);
         }
 
         let (min_cps, _max_cps, hard_limit) = match self.button {
@@ -100,21 +95,25 @@ impl DelayCalculator {
 
         let min_delay = match self.pattern.max_cps {
             cps if cps >= hard_limit => (1_000_000 / hard_limit as u64).saturating_sub(down_time),
-            _ => (1_000_000 / self.pattern.max_cps.max(min_cps) as u64).saturating_sub(down_time),
+            _ => {
+                let target_cps = self.pattern.max_cps.max(min_cps);
+                (1_000_000 / target_cps as u64).saturating_sub(down_time)
+            }
         };
 
         if adjusted_delay < min_delay {
             adjusted_delay = min_delay;
         }
 
-        let micro_jitter = self.rng.random_range(-10..=10);
-        adjusted_delay = adjusted_delay.saturating_add_signed(micro_jitter);
-
         Duration::from_micros(adjusted_delay)
     }
 
     pub fn hold_duration(&mut self) -> Duration {
-        let (base_hold, jitter_range) = self.server_timing.hold_duration_us();
+        let (base_hold, jitter_range) = match self.button {
+            MouseButton::Left => self.server_timing.hold_duration_us(),
+            MouseButton::Right => self.server_timing.right_hold_duration_us(),
+        };
+
         let jitter = self.rng.random_range(-jitter_range..=jitter_range);
         let hold_time = base_hold.saturating_add_signed(jitter);
 

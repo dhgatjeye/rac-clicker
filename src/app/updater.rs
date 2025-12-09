@@ -1,8 +1,8 @@
 use crate::{RacError, RacResult, UpdateManager, Version};
 use std::io::{self, Write};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 

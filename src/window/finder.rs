@@ -1,14 +1,14 @@
 use crate::core::{RacError, RacResult};
 use crate::window::WindowHandle;
 use std::sync::atomic::{AtomicU32, Ordering};
-use windows::core::BOOL;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
 };
+use windows::core::BOOL;
 
 pub struct WindowFinder {
     target_process: String,

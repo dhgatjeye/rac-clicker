@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 use windows::Win32::System::Console::{
-    FillConsoleOutputAttribute, FillConsoleOutputCharacterA, GetConsoleScreenBufferInfo, GetStdHandle,
-    SetConsoleCursorPosition, CONSOLE_SCREEN_BUFFER_INFO, COORD, STD_OUTPUT_HANDLE,
+    CONSOLE_SCREEN_BUFFER_INFO, COORD, FillConsoleOutputAttribute, FillConsoleOutputCharacterA,
+    GetConsoleScreenBufferInfo, GetStdHandle, STD_OUTPUT_HANDLE, SetConsoleCursorPosition,
 };
 
 pub struct ScreenUtils;

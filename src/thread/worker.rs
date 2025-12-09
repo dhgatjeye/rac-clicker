@@ -1,7 +1,7 @@
 use crate::core::{ClickPattern, MouseButton};
 use crate::thread::sync::SyncSignal;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[repr(align(64))]
 struct CacheAlignedAtomicBool(AtomicBool);

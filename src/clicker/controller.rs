@@ -1,6 +1,6 @@
 use crate::clicker::{ClickExecutor, DelayCalculator};
 use crate::core::{MouseButton, ToggleMode};
-use crate::thread::sync::SmartSleep;
+use crate::thread::PrecisionSleep;
 use crate::thread::worker::ClickWorker;
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,7 +67,7 @@ impl ClickController {
 
             let hwnd = hwnd_provider();
             if hwnd.is_invalid() {
-                SmartSleep::sleep(Duration::from_millis(20));
+                PrecisionSleep::sleep(Duration::from_millis(20));
                 continue;
             }
 
@@ -77,12 +77,12 @@ impl ClickController {
                 .execute_click(hwnd, worker.config().button, hold_duration)
                 .is_err()
             {
-                SmartSleep::sleep(Duration::from_millis(20));
+                PrecisionSleep::sleep(Duration::from_millis(20));
                 continue;
             }
 
             let delay = delay_calc.next_delay();
-            SmartSleep::sleep(delay);
+            PrecisionSleep::sleep(delay);
         }
     }
 

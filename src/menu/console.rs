@@ -1,10 +1,10 @@
 use crate::config::{ConfigProfile, SettingsManager};
 use crate::core::{RacError, RacResult};
-use crate::menu::screens::*;
 use crate::menu::MenuCommand;
+use crate::menu::screens::*;
 use std::io::{self, Write};
-use windows::core::PCSTR;
 use windows::Win32::System::Console::SetConsoleTitleA;
+use windows::core::PCSTR;
 
 pub struct ConsoleMenu {
     profile: ConfigProfile,

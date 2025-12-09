@@ -92,34 +92,3 @@ impl SyncSignal {
         }
     }
 }
-
-pub struct SmartSleep;
-
-impl SmartSleep {
-    pub fn sleep(duration: Duration) {
-        if duration.as_micros() < 1 {
-            return;
-        }
-
-        if duration.as_micros() < 1000 {
-            let sleep_duration = duration.saturating_mul(58) / 100;
-            if sleep_duration.as_micros() > 0 {
-                std::thread::sleep(sleep_duration);
-            }
-
-            let deadline = std::time::Instant::now() + duration;
-            let mut iterations = 0u32;
-
-            loop {
-                if iterations & 0x3F == 0 && std::time::Instant::now() >= deadline {
-                    break;
-                }
-                std::hint::spin_loop();
-                iterations = iterations.wrapping_add(1);
-            }
-            return;
-        }
-
-        std::thread::sleep(duration);
-    }
-}

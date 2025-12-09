@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use windows::Win32::UI::Shell::{SHChangeNotify, SHCNE_UPDATEDIR, SHCNF_FLAGS};
+use windows::Win32::UI::Shell::{SHCNE_UPDATEDIR, SHCNF_FLAGS, SHChangeNotify};
 
 #[derive(Clone)]
 pub struct UpdateInstaller {
