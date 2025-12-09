@@ -17,7 +17,7 @@ impl ServerConfig {
             server_type: ServerType::Craftrise,
             process_name: "craftrise-x64.exe".to_string(),
             left_click: ClickPattern::from_cps(15),
-            right_click: ClickPattern::from_cps(18),
+            right_click: ClickPattern::from_cps(19),
             description: "Craftrise server optimized".to_string(),
         }
     }
@@ -27,7 +27,7 @@ impl ServerConfig {
             server_type: ServerType::Sonoyuncu,
             process_name: "javaw.exe".to_string(),
             left_click: ClickPattern::from_cps(15),
-            right_click: ClickPattern::from_cps(18),
+            right_click: ClickPattern::from_cps(19),
             description: "Sonoyuncu server optimized settings".to_string(),
         }
     }
@@ -37,7 +37,7 @@ impl ServerConfig {
             server_type: ServerType::Custom,
             process_name,
             left_click: ClickPattern::default(),
-            right_click: ClickPattern::from_cps(18),
+            right_click: ClickPattern::from_cps(19),
             description: "Custom server configuration".to_string(),
         }
     }

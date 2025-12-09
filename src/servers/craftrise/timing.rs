@@ -6,7 +6,7 @@ impl ServerTiming for CraftriseTiming {
     /// Hold duration: 60µs ± 8µs (52-68µs range)
     /// Optimized for maximum CPS and momentum
     fn hold_duration_us(&self) -> (u64, i64) {
-        (45, 8) // base: 60µs (was 85µs), jitter: ±8µs
+        (55, 8) // base: 60µs (was 85µs), jitter: ±8µs
     }
 
     /// Combo pattern enabled for better PvP performance
@@ -28,7 +28,7 @@ impl ServerTiming for CraftriseTiming {
 
     /// First hit 7% faster -
     fn first_hit_boost(&self) -> u8 {
-        7 // 7% speed boost
+        10 // 7% speed boost
     }
 
     /// 170ms penalty after button release
