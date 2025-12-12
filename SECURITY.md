@@ -1,13 +1,5 @@
 # Security Policy
 
-## Supported Versions
-
-I maintain and provide security updates for the following versions:
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.3.x   | :white_check_mark: |
-
 ## Reporting Security Vulnerabilities
 
 I take security issues seriously. If you discover a security vulnerability, please follow these guidelines:
