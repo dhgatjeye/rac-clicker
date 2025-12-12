@@ -1,6 +1,6 @@
 use crate::core::ClickPattern;
 use crate::core::{MouseButton, ServerType};
-use crate::servers::{get_server_timing, ServerTiming};
+use crate::servers::{ServerTiming, get_server_timing};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::time::{Duration, Instant};
@@ -84,7 +84,10 @@ impl DelayCalculator {
 
         let down_time = self.server_timing.hold_duration_us().0;
         let min_delay = self.calculate_min_delay(down_time);
-        let final_delay = boosted_delay.max(min_delay);
+
+        let hard_limit_delay = (1_000_000 / hard_limit as u64).saturating_sub(down_time);
+
+        let final_delay = boosted_delay.max(min_delay).max(hard_limit_delay);
 
         Duration::from_micros(final_delay)
     }

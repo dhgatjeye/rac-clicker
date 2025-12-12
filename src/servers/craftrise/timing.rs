@@ -24,7 +24,7 @@ impl ServerTiming for CraftriseTiming {
     }
 
     fn first_hit_boost(&self) -> u8 {
-        15
+        20
     }
 
     fn release_penalty_ms(&self) -> u64 {
@@ -32,10 +32,10 @@ impl ServerTiming for CraftriseTiming {
     }
 
     fn left_cps_limits(&self) -> (u8, u8, u8) {
-        (15, 16, 16)
+        (15, 16, 17)
     }
 
     fn right_cps_limits(&self) -> (u8, u8, u8) {
-        (18, 20, 20)
+        (18, 20, 21)
     }
 }
