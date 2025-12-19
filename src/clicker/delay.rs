@@ -13,6 +13,7 @@ pub struct DelayCalculator {
     was_pressed: bool,
     combo_counter: u8,
     rng: SmallRng,
+    last_down: Option<Instant>,
 }
 
 impl DelayCalculator {
@@ -33,6 +34,7 @@ impl DelayCalculator {
             was_pressed: false,
             combo_counter: 0,
             rng,
+            last_down: None,
         })
     }
 
@@ -52,7 +54,10 @@ impl DelayCalculator {
     }
 
     fn calculate_down_time(&mut self) -> u64 {
-        let (base_down_time, jitter_range) = self.server_timing.hold_duration_us();
+        let (base_down_time, jitter_range) = match self.button {
+            MouseButton::Left => self.server_timing.hold_duration_us(),
+            MouseButton::Right => self.server_timing.right_hold_duration_us(),
+        };
         let down_jitter = self.rng.random_range(-jitter_range..=jitter_range);
         base_down_time.saturating_add_signed(down_jitter)
     }
@@ -72,7 +77,11 @@ impl DelayCalculator {
     fn calculate_first_hit_delay(&self) -> Duration {
         let (min_cps, _max_cps, hard_limit) = self.get_cps_limits();
         let target_cps = self.pattern.max_cps;
-        let boost = self.server_timing.first_hit_boost();
+
+        let boost = match self.button {
+            MouseButton::Left => self.server_timing.left_first_hit_boost(),
+            MouseButton::Right => self.server_timing.right_first_hit_boost(),
+        };
 
         let base_cps_delay = self.calculate_base_cps_delay(target_cps);
 
@@ -82,7 +91,10 @@ impl DelayCalculator {
             base_cps_delay
         };
 
-        let down_time = self.server_timing.hold_duration_us().0;
+        let down_time = match self.button {
+            MouseButton::Left => self.server_timing.hold_duration_us().0,
+            MouseButton::Right => self.server_timing.right_hold_duration_us().0,
+        };
         let min_delay = self.calculate_min_delay(down_time);
 
         let hard_limit_delay = (1_000_000 / hard_limit as u64).saturating_sub(down_time);
@@ -93,8 +105,16 @@ impl DelayCalculator {
     }
 
     fn apply_combo_pause(&mut self, delay: u64) -> u64 {
-        if self.server_timing.use_combo_pattern() && self.combo_counter == 0 {
-            let (min_pause, max_pause) = self.server_timing.combo_pause_us();
+        let use_combo = match self.button {
+            MouseButton::Left => self.server_timing.use_left_combo_pattern(),
+            MouseButton::Right => self.server_timing.use_right_combo_pattern(),
+        };
+
+        if use_combo && self.combo_counter == 0 {
+            let (min_pause, max_pause) = match self.button {
+                MouseButton::Left => self.server_timing.left_combo_pause_us(),
+                MouseButton::Right => self.server_timing.right_combo_pause_us(),
+            };
             let micro_pause = self.rng.random_range(min_pause..=max_pause);
             delay.saturating_add(micro_pause)
         } else {
@@ -115,6 +135,10 @@ impl DelayCalculator {
         None
     }
 
+    pub fn record_down(&mut self, instant: Instant) {
+        self.last_down = Some(instant);
+    }
+
     pub fn next_delay(&mut self) -> Duration {
         if let Some(remaining) = self.check_penalty() {
             return remaining;
@@ -126,10 +150,22 @@ impl DelayCalculator {
             return self.calculate_first_hit_delay();
         }
 
-        if self.server_timing.use_combo_pattern() {
-            let interval = self.server_timing.combo_interval();
+        if match self.button {
+            MouseButton::Left => self.server_timing.use_left_combo_pattern(),
+            MouseButton::Right => self.server_timing.use_right_combo_pattern(),
+        } {
+            let interval = match self.button {
+                MouseButton::Left => self.server_timing.left_combo_interval(),
+                MouseButton::Right => self.server_timing.right_combo_interval(),
+            };
             self.combo_counter = (self.combo_counter + 1) % interval;
         }
+
+        let (min_cps, _max_cps, hard_limit) = self.get_cps_limits();
+        let effective_target_cps = match self.pattern.max_cps {
+            cps if cps >= hard_limit => hard_limit,
+            _ => self.pattern.max_cps.max(min_cps),
+        };
 
         let base_cps_delay = self.calculate_base_cps_delay(self.pattern.max_cps);
         let down_time = self.calculate_down_time();
@@ -140,6 +176,24 @@ impl DelayCalculator {
         let min_delay = self.calculate_min_delay(down_time);
         if adjusted_delay < min_delay {
             adjusted_delay = min_delay;
+        }
+
+        if let Some(last) = self.last_down {
+            let desired_period_us = if effective_target_cps == 0 {
+                1_000_000u64
+            } else {
+                1_000_000u64 / effective_target_cps as u64
+            };
+            let desired_period = Duration::from_micros(desired_period_us);
+
+            let now = Instant::now();
+            if last + desired_period > now {
+                let remaining = (last + desired_period) - now;
+                let remaining_micros = remaining.as_micros() as u64;
+                if adjusted_delay < remaining_micros {
+                    adjusted_delay = remaining_micros;
+                }
+            }
         }
 
         Duration::from_micros(adjusted_delay)
@@ -160,6 +214,7 @@ impl DelayCalculator {
     pub fn reset_on_release(&mut self) {
         self.was_pressed = false;
         self.combo_counter = 0;
+        self.last_down = None;
 
         let penalty_ms = self.server_timing.release_penalty_ms();
         if penalty_ms > 0 {

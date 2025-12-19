@@ -11,31 +11,47 @@ impl ServerTiming for SonoyuncuTiming {
         (75, 3)
     }
 
-    fn use_combo_pattern(&self) -> bool {
+    fn use_left_combo_pattern(&self) -> bool {
         true
     }
 
-    fn combo_interval(&self) -> u8 {
+    fn use_right_combo_pattern(&self) -> bool {
+        true
+    }
+
+    fn left_combo_interval(&self) -> u8 {
         3
     }
 
-    fn combo_pause_us(&self) -> (u64, u64) {
+    fn right_combo_interval(&self) -> u8 {
+        3
+    }
+
+    fn left_combo_pause_us(&self) -> (u64, u64) {
         (2000, 4000)
     }
 
-    fn first_hit_boost(&self) -> u8 {
-        15
+    fn right_combo_pause_us(&self) -> (u64, u64) {
+        (2000, 4000)
+    }
+
+    fn left_first_hit_boost(&self) -> u8 {
+        20
+    }
+
+    fn right_first_hit_boost(&self) -> u8 {
+        20
     }
 
     fn release_penalty_ms(&self) -> u64 {
-        200
+        300
     }
 
     fn left_cps_limits(&self) -> (u8, u8, u8) {
-        (14, 16, 16)
+        (14, 15, 16)
     }
 
     fn right_cps_limits(&self) -> (u8, u8, u8) {
-        (18, 20, 20)
+        (18, 19, 20)
     }
 }
