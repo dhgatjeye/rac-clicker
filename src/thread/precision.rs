@@ -6,108 +6,133 @@ pub struct PrecisionSleep;
 impl PrecisionSleep {
     #[inline]
     pub fn sleep(duration: Duration) {
-        let micros = duration.as_micros();
+        let nanos = duration.as_nanos();
 
-        if micros < 1 {
+        if nanos == 0 {
             return;
         }
 
-        if micros < 30 {
-            Self::spin_wait(duration);
+        if nanos < 1_000 {
+            Self::pure_spin(duration);
             return;
         }
 
-        if micros < 150 {
-            Self::hybrid_sleep_short(duration);
+        let micros = (nanos / 1_000) as u64;
+
+        if micros < 20 {
+            Self::calibrated_spin(duration);
+            return;
+        }
+
+        if micros < 100 {
+            Self::micro_sleep(duration);
             return;
         }
 
         if micros < 500 {
-            Self::hybrid_sleep_medium(duration);
+            Self::balanced_hybrid(duration);
             return;
         }
 
-        Self::hybrid_sleep_long(duration);
+        Self::efficient_hybrid(duration);
     }
 
-    #[inline(always)]
-    fn spin_wait(duration: Duration) {
+    fn pure_spin(duration: Duration) {
         let deadline = Instant::now() + duration;
 
-        let mut iterations = 0u32;
+        while Instant::now() < deadline {
+            std::hint::spin_loop();
+        }
+    }
+
+    fn calibrated_spin(duration: Duration) {
+        let deadline = Instant::now() + duration;
+        let mut check_counter = 0u32;
 
         loop {
-            std::hint::spin_loop();
+            for _ in 0..8 {
+                std::hint::spin_loop();
+            }
 
-            iterations = iterations.wrapping_add(1);
+            check_counter += 1;
 
-            if iterations & 0x7 == 0 && Instant::now() >= deadline {
+            if check_counter & 0xF == 0 && Instant::now() >= deadline {
                 break;
             }
         }
     }
 
-    #[inline]
-    fn hybrid_sleep_short(duration: Duration) {
+    fn micro_sleep(duration: Duration) {
         let micros = duration.as_micros() as u64;
 
-        let sleep_micros = (micros * 30) / 100;
-
-        if sleep_micros >= 15 {
-            thread::sleep(Duration::from_micros(sleep_micros));
+        let sleep_portion = micros / 5;
+        if sleep_portion >= 10 {
+            thread::sleep(Duration::from_micros(sleep_portion));
         }
 
-        let deadline = Instant::now() + Duration::from_micros(micros - sleep_micros);
-        let mut iterations = 0u32;
+        let deadline = Instant::now() + Duration::from_micros(micros - sleep_portion);
+        let mut check_counter = 0u32;
 
         loop {
-            std::hint::spin_loop();
-            iterations = iterations.wrapping_add(1);
+            for _ in 0..4 {
+                std::hint::spin_loop();
+            }
 
-            if iterations & 0x7 == 0 && Instant::now() >= deadline {
+            check_counter += 1;
+
+            if check_counter & 0x7 == 0 && Instant::now() >= deadline {
                 break;
             }
         }
     }
 
-    #[inline]
-    fn hybrid_sleep_medium(duration: Duration) {
+    fn balanced_hybrid(duration: Duration) {
         let micros = duration.as_micros() as u64;
 
-        let sleep_micros = micros / 2;
-
+        let sleep_micros = (micros * 40) / 100;
         thread::sleep(Duration::from_micros(sleep_micros));
 
         let deadline = Instant::now() + Duration::from_micros(micros - sleep_micros);
-        let mut iterations = 0u32;
+        let mut check_counter = 0u32;
 
         loop {
-            std::hint::spin_loop();
-            iterations = iterations.wrapping_add(1);
+            for _ in 0..8 {
+                std::hint::spin_loop();
+            }
 
-            if iterations & 0xF == 0 && Instant::now() >= deadline {
+            check_counter += 1;
+
+            if check_counter & 0xF == 0 && Instant::now() >= deadline {
                 break;
             }
         }
     }
 
-    #[inline]
-    fn hybrid_sleep_long(duration: Duration) {
+    fn efficient_hybrid(duration: Duration) {
         let micros = duration.as_micros() as u64;
 
-        let sleep_micros = (micros * 85) / 100;
-
+        let sleep_micros = (micros * 80) / 100;
         thread::sleep(Duration::from_micros(sleep_micros));
 
         let deadline = Instant::now() + Duration::from_micros(micros - sleep_micros);
-        let mut iterations = 0u32;
+        let mut check_counter = 0u32;
 
         loop {
-            std::hint::spin_loop();
-            iterations = iterations.wrapping_add(1);
+            for _ in 0..16 {
+                std::hint::spin_loop();
+            }
 
-            if iterations & 0x1F == 0 && Instant::now() >= deadline {
-                break;
+            check_counter += 1;
+
+            if check_counter & 0x1F == 0 {
+                if Instant::now() >= deadline {
+                    break;
+                }
+
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.as_micros() > 50 {
+                    thread::yield_now();
+                }
             }
         }
     }

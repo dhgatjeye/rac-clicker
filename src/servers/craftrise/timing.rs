@@ -4,11 +4,11 @@ pub struct CraftriseTiming;
 
 impl ServerTiming for CraftriseTiming {
     fn hold_duration_us(&self) -> (u64, i64) {
-        (125, 4)
+        (155, 4)
     }
 
     fn right_hold_duration_us(&self) -> (u64, i64) {
-        (75, 3)
+        (45, 3)
     }
 
     fn use_left_combo_pattern(&self) -> bool {
@@ -16,7 +16,7 @@ impl ServerTiming for CraftriseTiming {
     }
 
     fn use_right_combo_pattern(&self) -> bool {
-        true
+        false
     }
 
     fn left_combo_interval(&self) -> u8 {
