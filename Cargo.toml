@@ -1,6 +1,6 @@
 [package]
 name = "rac-clicker"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["LuaCodder"]
 edition = "2024"
 description = "Robust Auto Click for CraftRise, Made By LuaCodder"
@@ -23,7 +23,6 @@ codegen-units = 1
 embed-resource = "3.0.6"
 
 [dependencies]
-rand = "0.9.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 
