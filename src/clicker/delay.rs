@@ -1,8 +1,7 @@
+use crate::clicker::PcgRng;
 use crate::core::ClickPattern;
 use crate::core::{MouseButton, ServerType};
 use crate::servers::{ServerTiming, get_server_timing};
-use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
 use std::time::{Duration, Instant};
 
 pub struct DelayCalculator {
@@ -12,8 +11,9 @@ pub struct DelayCalculator {
     penalty_until: Option<Instant>,
     was_pressed: bool,
     combo_counter: u8,
-    rng: SmallRng,
-    last_down: Option<Instant>,
+    rng: PcgRng,
+    click_history: Vec<Instant>,
+    last_click_time: Option<Instant>,
 }
 
 impl DelayCalculator {
@@ -23,8 +23,7 @@ impl DelayCalculator {
         server_type: ServerType,
     ) -> crate::core::RacResult<Self> {
         let server_timing = get_server_timing(server_type)?;
-        let mut thread_rng = rand::rng();
-        let rng = SmallRng::from_rng(&mut thread_rng);
+        let rng = PcgRng::from_entropy();
 
         Ok(Self {
             pattern,
@@ -34,7 +33,8 @@ impl DelayCalculator {
             was_pressed: false,
             combo_counter: 0,
             rng,
-            last_down: None,
+            click_history: Vec::with_capacity(32),
+            last_click_time: None,
         })
     }
 
@@ -58,7 +58,8 @@ impl DelayCalculator {
             MouseButton::Left => self.server_timing.hold_duration_us(),
             MouseButton::Right => self.server_timing.right_hold_duration_us(),
         };
-        let down_jitter = self.rng.random_range(-jitter_range..=jitter_range);
+
+        let down_jitter = self.rng.random_range_i64(-jitter_range, jitter_range);
         base_down_time.saturating_add_signed(down_jitter)
     }
 
@@ -115,7 +116,8 @@ impl DelayCalculator {
                 MouseButton::Left => self.server_timing.left_combo_pause_us(),
                 MouseButton::Right => self.server_timing.right_combo_pause_us(),
             };
-            let micro_pause = self.rng.random_range(min_pause..=max_pause);
+
+            let micro_pause = self.rng.random_range_u64(min_pause, max_pause);
             delay.saturating_add(micro_pause)
         } else {
             delay
@@ -135,8 +137,57 @@ impl DelayCalculator {
         None
     }
 
-    pub fn record_down(&mut self, instant: Instant) {
-        self.last_down = Some(instant);
+    fn clean_old_history(&mut self) {
+        let now = Instant::now();
+        let one_second_ago = now - Duration::from_secs(1);
+        self.click_history.retain(|&t| t > one_second_ago);
+
+        if self.click_history.len() > 64 {
+            self.click_history.drain(0..16);
+        }
+    }
+
+    fn enforce_cps_limit(&mut self, mut delay: u64) -> u64 {
+        let now = Instant::now();
+        let (_min_cps, _max_cps, hard_limit) = self.get_cps_limits();
+        let effective_cps = if self.pattern.max_cps >= hard_limit {
+            hard_limit
+        } else {
+            self.pattern.max_cps
+        };
+
+        let target_period_us = 1_000_000 / effective_cps as u64;
+
+        if let Some(last) = self.last_click_time {
+            let elapsed = now.duration_since(last);
+            let elapsed_us = elapsed.as_micros() as u64;
+
+            if elapsed_us < target_period_us {
+                let needed = target_period_us - elapsed_us;
+                delay = delay.max(needed);
+            }
+        }
+
+        if self.click_history.len() >= effective_cps as usize {
+            let oldest_in_window =
+                self.click_history[self.click_history.len() - effective_cps as usize];
+            let window_duration = now.duration_since(oldest_in_window);
+            let window_us = window_duration.as_micros() as u64;
+
+            if window_us < 1_000_000 {
+                let needed = (1_000_000 - window_us) / 2;
+                delay = delay.max(needed);
+            }
+        }
+
+        delay
+    }
+
+    pub fn record_click(&mut self) {
+        let now = Instant::now();
+        self.last_click_time = Some(now);
+        self.click_history.push(now);
+        self.clean_old_history();
     }
 
     pub fn next_delay(&mut self) -> Duration {
@@ -161,12 +212,6 @@ impl DelayCalculator {
             self.combo_counter = (self.combo_counter + 1) % interval;
         }
 
-        let (min_cps, _max_cps, hard_limit) = self.get_cps_limits();
-        let effective_target_cps = match self.pattern.max_cps {
-            cps if cps >= hard_limit => hard_limit,
-            _ => self.pattern.max_cps.max(min_cps),
-        };
-
         let base_cps_delay = self.calculate_base_cps_delay(self.pattern.max_cps);
         let down_time = self.calculate_down_time();
 
@@ -178,23 +223,7 @@ impl DelayCalculator {
             adjusted_delay = min_delay;
         }
 
-        if let Some(last) = self.last_down {
-            let desired_period_us = if effective_target_cps == 0 {
-                1_000_000u64
-            } else {
-                1_000_000u64 / effective_target_cps as u64
-            };
-            let desired_period = Duration::from_micros(desired_period_us);
-
-            let now = Instant::now();
-            if last + desired_period > now {
-                let remaining = (last + desired_period) - now;
-                let remaining_micros = remaining.as_micros() as u64;
-                if adjusted_delay < remaining_micros {
-                    adjusted_delay = remaining_micros;
-                }
-            }
-        }
+        adjusted_delay = self.enforce_cps_limit(adjusted_delay);
 
         Duration::from_micros(adjusted_delay)
     }
@@ -205,7 +234,7 @@ impl DelayCalculator {
             MouseButton::Right => self.server_timing.right_hold_duration_us(),
         };
 
-        let jitter = self.rng.random_range(-jitter_range..=jitter_range);
+        let jitter = self.rng.random_range_i64(-jitter_range, jitter_range);
         let hold_time = base_hold.saturating_add_signed(jitter);
 
         Duration::from_micros(hold_time)
@@ -214,7 +243,8 @@ impl DelayCalculator {
     pub fn reset_on_release(&mut self) {
         self.was_pressed = false;
         self.combo_counter = 0;
-        self.last_down = None;
+        self.last_click_time = None;
+        self.click_history.clear();
 
         let penalty_ms = self.server_timing.release_penalty_ms();
         if penalty_ms > 0 {

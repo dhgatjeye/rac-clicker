@@ -71,22 +71,24 @@ impl ClickController {
                 continue;
             }
 
+            let delay = delay_calc.next_delay();
+
+            PrecisionSleep::sleep(delay);
+
             let hold_duration = delay_calc.hold_duration();
+
             match self
                 .executor
                 .execute_click(hwnd, worker.config().button, hold_duration)
             {
-                Ok(down_instant) => {
-                    delay_calc.record_down(down_instant);
+                Ok(_) => {
+                    delay_calc.record_click();
                 }
                 Err(_) => {
                     PrecisionSleep::sleep(Duration::from_millis(20));
                     continue;
                 }
             }
-
-            let delay = delay_calc.next_delay();
-            PrecisionSleep::sleep(delay);
         }
     }
 

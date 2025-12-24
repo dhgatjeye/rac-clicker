@@ -1,7 +1,6 @@
 use crate::core::{MouseButton, RacError, RacResult};
 use crate::thread::PrecisionSleep;
 use std::time::Duration;
-use std::time::Instant;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::SystemServices::{MK_LBUTTON, MK_RBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -26,7 +25,7 @@ impl ClickExecutor {
         hwnd: HWND,
         button: MouseButton,
         hold_duration: Duration,
-    ) -> RacResult<Instant> {
+    ) -> RacResult<()> {
         if hwnd.is_invalid() {
             return Err(RacError::WindowError("Invalid window handle".to_string()));
         }
@@ -37,8 +36,6 @@ impl ClickExecutor {
         };
 
         unsafe {
-            let down_instant = Instant::now();
-
             PostMessageA(Some(hwnd), down_msg, WPARAM(flags.0 as usize), LPARAM(0))
                 .map_err(|e| RacError::WindowError(format!("Failed to send button down: {}", e)))?;
 
@@ -47,7 +44,7 @@ impl ClickExecutor {
             PostMessageA(Some(hwnd), up_msg, WPARAM(0), LPARAM(0))
                 .map_err(|e| RacError::WindowError(format!("Failed to send button up: {}", e)))?;
 
-            Ok(down_instant)
+            Ok(())
         }
     }
 }
