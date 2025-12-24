@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 pub struct PrecisionSleep;
 
 impl PrecisionSleep {
-    #[inline]
     pub fn sleep(duration: Duration) {
         let nanos = duration.as_nanos();
 
@@ -37,6 +36,7 @@ impl PrecisionSleep {
         Self::efficient_hybrid(duration);
     }
 
+    #[inline]
     fn pure_spin(duration: Duration) {
         let deadline = Instant::now() + duration;
 
@@ -45,6 +45,7 @@ impl PrecisionSleep {
         }
     }
 
+    #[inline]
     fn calibrated_spin(duration: Duration) {
         let deadline = Instant::now() + duration;
         let mut check_counter = 0u32;
@@ -62,6 +63,7 @@ impl PrecisionSleep {
         }
     }
 
+    #[inline]
     fn micro_sleep(duration: Duration) {
         let micros = duration.as_micros() as u64;
 
@@ -86,6 +88,7 @@ impl PrecisionSleep {
         }
     }
 
+    #[inline]
     fn balanced_hybrid(duration: Duration) {
         let micros = duration.as_micros() as u64;
 
@@ -108,6 +111,7 @@ impl PrecisionSleep {
         }
     }
 
+    #[inline]
     fn efficient_hybrid(duration: Duration) {
         let micros = duration.as_micros() as u64;
 
