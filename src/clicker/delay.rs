@@ -1,4 +1,4 @@
-use crate::clicker::PcgRng;
+use crate::clicker::Xoshiro256;
 use crate::core::ClickPattern;
 use crate::core::{MouseButton, ServerType};
 use crate::servers::{ServerTiming, get_server_timing};
@@ -11,7 +11,7 @@ pub struct DelayCalculator {
     penalty_until: Option<Instant>,
     was_pressed: bool,
     combo_counter: u8,
-    rng: PcgRng,
+    rng: Xoshiro256,
     click_history: Vec<Instant>,
     last_click_time: Option<Instant>,
 }
@@ -23,7 +23,7 @@ impl DelayCalculator {
         server_type: ServerType,
     ) -> crate::core::RacResult<Self> {
         let server_timing = get_server_timing(server_type)?;
-        let rng = PcgRng::from_entropy();
+        let rng = Xoshiro256::from_entropy();
 
         Ok(Self {
             pattern,
