@@ -1,4 +1,4 @@
-use crate::clicker::Xoshiro256;
+use crate::clicker::{ClickHistory, Xoshiro256};
 use crate::core::ClickPattern;
 use crate::core::{MouseButton, ServerType};
 use crate::servers::{ServerTiming, get_server_timing};
@@ -12,8 +12,7 @@ pub struct DelayCalculator {
     was_pressed: bool,
     combo_counter: u8,
     rng: Xoshiro256,
-    click_history: Vec<Instant>,
-    last_click_time: Option<Instant>,
+    click_history: ClickHistory,
 }
 
 impl DelayCalculator {
@@ -33,8 +32,7 @@ impl DelayCalculator {
             was_pressed: false,
             combo_counter: 0,
             rng,
-            click_history: Vec::with_capacity(32),
-            last_click_time: None,
+            click_history: ClickHistory::new(),
         })
     }
 
@@ -137,16 +135,6 @@ impl DelayCalculator {
         None
     }
 
-    fn clean_old_history(&mut self) {
-        let now = Instant::now();
-        let one_second_ago = now - Duration::from_secs(1);
-        self.click_history.retain(|&t| t > one_second_ago);
-
-        if self.click_history.len() > 64 {
-            self.click_history.drain(0..16);
-        }
-    }
-
     fn enforce_cps_limit(&mut self, mut delay: u64) -> u64 {
         let now = Instant::now();
         let (_min_cps, _max_cps, hard_limit) = self.get_cps_limits();
@@ -158,9 +146,9 @@ impl DelayCalculator {
 
         let target_period_us = 1_000_000 / effective_cps as u64;
 
-        if let Some(last) = self.last_click_time {
-            let elapsed = now.duration_since(last);
-            let elapsed_us = elapsed.as_micros() as u64;
+        if let Some(last_ts) = self.click_history.get_last_timestamp() {
+            let current_us = now.duration_since(self.click_history.epoch).as_micros() as u64;
+            let elapsed_us = current_us.saturating_sub(last_ts);
 
             if elapsed_us < target_period_us {
                 let needed = target_period_us - elapsed_us;
@@ -168,11 +156,11 @@ impl DelayCalculator {
             }
         }
 
-        if self.click_history.len() >= effective_cps as usize {
-            let oldest_in_window =
-                self.click_history[self.click_history.len() - effective_cps as usize];
-            let window_duration = now.duration_since(oldest_in_window);
-            let window_us = window_duration.as_micros() as u64;
+        if self.click_history.count >= effective_cps
+            && let Some(oldest_ts) = self.click_history.get_nth_from_end(effective_cps - 1)
+        {
+            let current_us = now.duration_since(self.click_history.epoch).as_micros() as u64;
+            let window_us = current_us.saturating_sub(oldest_ts);
 
             if window_us < 1_000_000 {
                 let needed = (1_000_000 - window_us) / 2;
@@ -183,11 +171,10 @@ impl DelayCalculator {
         delay
     }
 
+    #[inline]
     pub fn record_click(&mut self) {
         let now = Instant::now();
-        self.last_click_time = Some(now);
         self.click_history.push(now);
-        self.clean_old_history();
     }
 
     pub fn next_delay(&mut self) -> Duration {
@@ -243,7 +230,6 @@ impl DelayCalculator {
     pub fn reset_on_release(&mut self) {
         self.was_pressed = false;
         self.combo_counter = 0;
-        self.last_click_time = None;
         self.click_history.clear();
 
         let penalty_ms = self.server_timing.release_penalty_ms();
