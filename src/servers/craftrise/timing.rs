@@ -4,7 +4,7 @@ pub struct CraftriseTiming;
 
 impl ServerTiming for CraftriseTiming {
     fn hold_duration_us(&self) -> (u64, i64) {
-        (125, 4)
+        (65, 10)
     }
 
     fn right_hold_duration_us(&self) -> (u64, i64) {
@@ -28,7 +28,7 @@ impl ServerTiming for CraftriseTiming {
     }
 
     fn left_combo_pause_us(&self) -> (u64, u64) {
-        (2000, 4000)
+        (1000, 3000)
     }
 
     fn right_combo_pause_us(&self) -> (u64, u64) {
@@ -36,7 +36,7 @@ impl ServerTiming for CraftriseTiming {
     }
 
     fn left_first_hit_boost(&self) -> u8 {
-        95
+        15
     }
 
     fn right_first_hit_boost(&self) -> u8 {
