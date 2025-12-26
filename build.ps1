@@ -70,7 +70,7 @@ $builtExe = Join-Path $targetDir $exeName
 
 if (-not (Test-Path $builtExe)) {
     # sometimes binary name may differ (workspace) search for it
-    $found = Get-ChildItem -Path $targetDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -eq $name }
+    $found = Get-ChildItem -Path $targetDir -Filter "*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -eq $name }
     if ($found) { $builtExe = $found[0].FullName }
 }
 
@@ -82,15 +82,30 @@ if (-not (Test-Path $builtExe)) {
 }
 
 # Prepare output dir
-$OutDirFull = Resolve-Path -Path $OutDir -ErrorAction SilentlyContinue
-if (-not $OutDirFull) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null; $OutDirFull = Resolve-Path $OutDir }
-$OutDirFull = $OutDirFull.Path
+$OutDirAbsolute = $OutDir
+if (-not [System.IO.Path]::IsPathRooted($OutDir)) {
+    $OutDirAbsolute = Join-Path $RepoRoot $OutDir
+}
+
+# Create directory if it doesn't exist
+if (-not (Test-Path $OutDirAbsolute)) {
+    Write-Info ("Creating output directory: {0}" -f $OutDirAbsolute)
+    New-Item -ItemType Directory -Path $OutDirAbsolute -Force | Out-Null
+}
 
 # Build output filename and copy
 $artifactName = ("{0}-v{1}.exe" -f $name, $version)
-$artifactPath = Join-Path $OutDirFull $artifactName
+$artifactPath = Join-Path $OutDirAbsolute $artifactName
+
+Write-Info ("Copying {0} to {1}" -f $builtExe, $artifactPath)
 Copy-Item -Path $builtExe -Destination $artifactPath -Force
-Write-Info ("Copied built artifact to: {0}" -f $artifactPath)
+
+if (Test-Path $artifactPath) {
+    Write-Info ("Successfully copied built artifact to: {0}" -f $artifactPath)
+} else {
+    Write-Err ("Failed to copy artifact to: {0}" -f $artifactPath)
+    exit 6
+}
 
 Write-Info "Build script completed successfully."
 exit 0
