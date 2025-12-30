@@ -1,0 +1,229 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (test without creating release)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-release-
+
+      - name: Read version from Cargo.toml
+        id: version
+        shell: pwsh
+        run: |
+          $cargoToml = Get-Content "Cargo.toml" -Raw
+          if ($cargoToml -match 'version\s*=\s*"([^"]+)"') {
+            $version = $matches[1]
+            Write-Host "Found version: $version"
+            echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+            echo "TAG=$version" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Error "Could not find version in Cargo.toml"
+            exit 1
+          }
+
+      - name: Read package name from Cargo.toml
+        id: package
+        shell: pwsh
+        run: |
+          $cargoToml = Get-Content "Cargo.toml" -Raw
+          if ($cargoToml -match 'name\s*=\s*"([^"]+)"') {
+            $name = $matches[1]
+            Write-Host "Found package name: $name"
+            echo "NAME=$name" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Error "Could not find package name in Cargo.toml"
+            exit 1
+          }
+
+      - name: Check if tag already exists
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.TAG }}"
+          git fetch --tags
+          if (git tag -l $tag) {
+            Write-Error "Tag $tag already exists! Please update version in Cargo.toml"
+            exit 1
+          }
+          Write-Host "Tag $tag does not exist, continuing..."
+
+      - name: Build release binary
+        shell: pwsh
+        run: |
+          Write-Host "Building release binary..."
+          cargo build --release --verbose
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          Write-Host "Build completed successfully"
+
+      - name: Prepare release artifact
+        id: artifact
+        shell: pwsh
+        run: |
+          $name = "${{ steps.package.outputs.NAME }}"
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $builtExe = "target\release\$name.exe"
+          $artifactName = "$name-v$version.exe"
+          
+          if (-not (Test-Path $builtExe)) {
+            Write-Error "Built executable not found at $builtExe"
+            Get-ChildItem target\release
+            exit 1
+          }
+          
+          Write-Host "Copying $builtExe to $artifactName"
+          Copy-Item $builtExe $artifactName
+          
+          echo "ARTIFACT_NAME=$artifactName" >> $env:GITHUB_OUTPUT
+          echo "ARTIFACT_PATH=$artifactName" >> $env:GITHUB_OUTPUT
+
+      - name: Get latest tag
+        id: latest_tag
+        shell: pwsh
+        run: |
+          git fetch --tags
+          $latestTag = git describe --tags --abbrev=0 2>$null
+          if ($LASTEXITCODE -eq 0 -and $latestTag) {
+            Write-Host "Latest tag: $latestTag"
+            echo "LATEST_TAG=$latestTag" >> $env:GITHUB_OUTPUT
+            echo "HAS_PREVIOUS_TAG=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "No previous tags found"
+            echo "HAS_PREVIOUS_TAG=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Generate changelog
+        id: changelog
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.TAG }}"
+          $repoUrl = "${{ github.server_url }}/${{ github.repository }}"
+          
+          if ("${{ steps.latest_tag.outputs.HAS_PREVIOUS_TAG }}" -eq "true") {
+            $latestTag = "${{ steps.latest_tag.outputs.LATEST_TAG }}"
+            $compareUrl = "$repoUrl/compare/$latestTag...$tag"
+          
+            Write-Host "Generating changelog from $latestTag to $tag"
+          
+            # Get commits between tags
+            $commits = git log "$latestTag..HEAD" --pretty=format:"%H|%s" --no-merges
+          
+            $changelogContent = "**Full Changelog**: $compareUrl`n`n"
+          
+            if ($commits) {
+              foreach ($commit in $commits) {
+                $parts = $commit -split '\|', 2
+                $hash = $parts[0]
+                $message = $parts[1]
+                $commitUrl = "$repoUrl/commit/$hash"
+                $changelogContent += "- [$message]($commitUrl)`n"
+              }
+            } else {
+              $changelogContent += "No commits found between $latestTag and $tag`n"
+            }
+          } else {
+            Write-Host "No previous tag found, listing all commits"
+            $changelogContent = "**Initial Release**`n`n"
+          
+            $commits = git log --pretty=format:"%H|%s" --no-merges
+          
+            if ($commits) {
+              foreach ($commit in $commits) {
+                $parts = $commit -split '\|', 2
+                $hash = $parts[0]
+                $message = $parts[1]
+                $commitUrl = "$repoUrl/commit/$hash"
+                $changelogContent += "- [$message]($commitUrl)`n"
+              }
+            }
+          }
+          
+          # Save to file for GitHub release
+          $changelogContent | Out-File -FilePath "CHANGELOG.txt" -Encoding utf8
+          
+          Write-Host "Changelog generated:"
+          Write-Host $changelogContent
+
+      - name: Create Release
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: ${{ steps.version.outputs.TAG }}
+          body_path: CHANGELOG.txt
+          files: ${{ steps.artifact.outputs.ARTIFACT_PATH }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        shell: pwsh
+        run: |
+          Write-Host "================================"
+          Write-Host "DRY RUN MODE - No release created"
+          Write-Host "================================"
+          Write-Host ""
+          Write-Host "Tag: ${{ steps.version.outputs.TAG }}"
+          Write-Host "Artifact: ${{ steps.artifact.outputs.ARTIFACT_NAME }}"
+          Write-Host ""
+          Write-Host "Changelog:"
+          Get-Content CHANGELOG.txt
+          Write-Host ""
+          Write-Host "To create the release, run the workflow without dry_run option"
+
+      - name: Upload artifact for inspection
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.ARTIFACT_NAME }}
+          path: ${{ steps.artifact.outputs.ARTIFACT_PATH }}
+          retention-days: 1
