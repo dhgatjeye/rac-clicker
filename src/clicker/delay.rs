@@ -212,6 +212,9 @@ impl DelayCalculator {
 
         adjusted_delay = self.enforce_cps_limit(adjusted_delay);
 
+        let jitter = self.rng.random_range_i64(-40, 40);
+        adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
+
         Duration::from_micros(adjusted_delay)
     }
 
