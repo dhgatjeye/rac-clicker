@@ -21,7 +21,7 @@ fn main() {
     if let Err(e) = embed_resource::compile(
         "icon/RAC.rc",
         &[
-            format!("CARGO_PKG_VERSION=\"{}\"", version_str),
+            format!("CARGO_PKG_VERSION={}", version_str),
             format!("CARGO_PKG_VERSION_MAJOR={}", major),
             format!("CARGO_PKG_VERSION_MINOR={}", minor),
             format!("CARGO_PKG_VERSION_PATCH={}", patch),
