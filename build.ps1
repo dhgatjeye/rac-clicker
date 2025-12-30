@@ -17,8 +17,8 @@ if ([string]::IsNullOrEmpty($ScriptDir)) {
 } else {
     $RepoRoot = Resolve-Path $ScriptDir
 }
-Set-Location $RepoRoot
 
+Set-Location $RepoRoot
 Write-Info ("Repository root: {0}" -f $RepoRoot.Path)
 
 # Ensure cargo exists
@@ -30,11 +30,21 @@ if (-not (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
 # Run cargo build
 Write-Info ("Running cargo build --{0} ..." -f $Configuration)
 $buildStart = Get-Date
-$proc = Start-Process -FilePath "cargo" -ArgumentList "build","--$Configuration" -NoNewWindow -Wait -PassThru
-if ($proc.ExitCode -ne 0) {
-    Write-Err ("cargo build failed with exit code {0}" -f $proc.ExitCode)
-    exit $proc.ExitCode
+
+$cargoArgs = @("build", "--$Configuration")
+try {
+    & cargo $cargoArgs
+    $exitCode = $LASTEXITCODE
+} catch {
+    Write-Err ("cargo build threw an exception: {0}" -f $_.Exception.Message)
+    exit 2
 }
+
+if ($exitCode -ne 0) {
+    Write-Err ("cargo build failed with exit code {0}" -f $exitCode)
+    exit $exitCode
+}
+
 $buildEnd = Get-Date
 Write-Info ("Build finished in {0:N1}s" -f (($buildEnd - $buildStart).TotalSeconds))
 
