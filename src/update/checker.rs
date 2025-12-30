@@ -106,14 +106,15 @@ impl UpdateChecker {
         unsafe {
             let session = WinHttpHandle::new(WinHttpOpen(
                 &HSTRING::from("RAC-Updater/1.0"),
-                WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                 PCWSTR::null(),
                 PCWSTR::null(),
                 0,
             ))
             .ok_or_else(|| RacError::UpdateError("Failed to open WinHTTP session".into()))?;
 
-            let protocols: u32 = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
+            let protocols: u32 =
+                WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
             let _ = WinHttpSetOption(
                 Some(session.as_ptr() as *const _),
                 WINHTTP_OPTION_SECURE_PROTOCOLS,
