@@ -162,6 +162,13 @@ jobs:
                 $parts = $commit -split '\|', 2
                 $hash = $parts[0]
                 $message = $parts[1]
+          
+                # Skip commits that start with [release]
+                if ($message -match '^\[release\]') {
+                  Write-Host "Skipping release commit: $message"
+                  continue
+                }
+          
                 $commitUrl = "$repoUrl/commit/$hash"
                 $changelogContent += "- [$message]($commitUrl)`n"
               }
@@ -179,6 +186,13 @@ jobs:
                 $parts = $commit -split '\|', 2
                 $hash = $parts[0]
                 $message = $parts[1]
+          
+                # Skip commits that start with [release]
+                if ($message -match '^\[release\]') {
+                  Write-Host "Skipping release commit: $message"
+                  continue
+                }
+          
                 $commitUrl = "$repoUrl/commit/$hash"
                 $changelogContent += "- [$message]($commitUrl)`n"
               }
