@@ -1,34 +1,37 @@
+use std::env;
+
 fn main() {
-    let version_str = env!("CARGO_PKG_VERSION");
+    let version =
+        env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION environment variable must be set");
 
-    let parts: Vec<&str> = version_str.split('.').collect();
+    let (major, minor, patch) = parse_semver(&version);
 
-    let (major, minor, patch) = match parts.as_slice() {
-        [maj, min, pat] => (
-            maj.parse::<u32>().unwrap_or(0),
-            min.parse::<u32>().unwrap_or(0),
-            pat.parse::<u32>().unwrap_or(0),
-        ),
-        [maj, min] => (
-            maj.parse::<u32>().unwrap_or(0),
-            min.parse::<u32>().unwrap_or(0),
-            0,
-        ),
-        [maj] => (maj.parse::<u32>().unwrap_or(0), 0, 0),
-        _ => (0, 0, 0),
-    };
+    let compile_args = [
+        format!("CARGO_PKG_VERSION={version}"),
+        format!("CARGO_PKG_VERSION_MAJOR={major}"),
+        format!("CARGO_PKG_VERSION_MINOR={minor}"),
+        format!("CARGO_PKG_VERSION_PATCH={patch}"),
+    ];
 
-    if let Err(e) = embed_resource::compile(
-        "icon/RAC.rc",
-        &[
-            format!("CARGO_PKG_VERSION={}", version_str),
-            format!("CARGO_PKG_VERSION_MAJOR={}", major),
-            format!("CARGO_PKG_VERSION_MINOR={}", minor),
-            format!("CARGO_PKG_VERSION_PATCH={}", patch),
-        ],
-    )
-    .manifest_required()
-    {
-        panic!("Failed to compile Windows resources: {}", e);
+    embed_resource::compile("icon/RAC.rc", &compile_args)
+        .manifest_required()
+        .expect("Failed to compile Windows resource file");
+
+    println!("cargo:rerun-if-changed=icon/RAC.rc");
+    println!("cargo:rerun-if-changed=icon/Manifest.xml");
+    println!("cargo:rerun-if-changed=icon/RAC.ico");
+}
+
+fn parse_semver(version: &str) -> (u32, u32, u32) {
+    let parts: Vec<u32> = version
+        .split('.')
+        .filter_map(|part| part.parse().ok())
+        .collect();
+
+    match parts.as_slice() {
+        [major, minor, patch, ..] => (*major, *minor, *patch),
+        [major, minor] => (*major, *minor, 0),
+        [major] => (*major, 0, 0),
+        [] => (0, 0, 0),
     }
 }
