@@ -154,7 +154,7 @@ jobs:
               COMMIT_URL="$REPO_URL/commit/$HASH"
               CHANGELOG="${CHANGELOG}- [$MESSAGE]($COMMIT_URL)
           "
-            done < <(git log "$LATEST_TAG..HEAD" --pretty=format:"%H|%s" --no-merges)
+            done < <(git log "$LATEST_TAG..HEAD" --pretty=format:"%H|%s" --date-order)
           
           else
             echo "No previous tag found, listing all commits"
@@ -173,7 +173,7 @@ jobs:
               COMMIT_URL="$REPO_URL/commit/$HASH"
               CHANGELOG="${CHANGELOG}- [$MESSAGE]($COMMIT_URL)
           "
-            done < <(git log --pretty=format:"%H|%s" --no-merges)
+            done < <(git log --pretty=format:"%H|%s" --date-order)
           fi
           
           # Save to file for GitHub release
