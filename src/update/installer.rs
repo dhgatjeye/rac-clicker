@@ -133,6 +133,10 @@ impl UpdateInstaller {
 
         let script = format!(
             r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -356,7 +360,7 @@ catch {{
             new_target = escape_ps_single_quote(&new_target_str)
         );
 
-        fs::write(&script_path, script)
+        fs::write(&script_path, script.as_bytes())
             .map_err(|e| RacError::UpdateError(format!("Failed to write updater script: {}", e)))?;
 
         let script_path_str = script_path
@@ -370,8 +374,15 @@ catch {{
                 "-ExecutionPolicy",
                 "Bypass",
                 "-NoProfile",
-                "-File",
-                script_path_str,
+                "-InputFormat",
+                "None",
+                "-OutputFormat",
+                "Text",
+                "-Command",
+                &format!(
+                    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '{}'",
+                    script_path_str.replace('\'', "''")
+                ),
             ])
             .spawn();
 
