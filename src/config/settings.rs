@@ -37,8 +37,13 @@ pub struct SettingsManager {
 
 impl SettingsManager {
     pub fn new() -> RacResult<Self> {
-        let settings_path = Self::get_settings_path()?;
-        Ok(Self { settings_path })
+        Self::new_with_path(Self::get_settings_path()?)
+    }
+
+    pub fn new_with_path(path: PathBuf) -> RacResult<Self> {
+        Ok(Self {
+            settings_path: path,
+        })
     }
 
     fn get_settings_path() -> RacResult<PathBuf> {
@@ -60,7 +65,6 @@ impl SettingsManager {
         }
 
         let mut file = OpenOptions::new().read(true).open(&self.settings_path)?;
-
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
 
@@ -68,8 +72,7 @@ impl SettingsManager {
             Ok(settings) => Ok(settings),
             Err(e) => {
                 self.backup_corrupted_file()?;
-                eprintln!("Warning: Settings file was corrupted: {}", e);
-                eprintln!("A backup was created and default settings will be used.");
+                eprintln!("Warning: Settings file corrupted: {}. Using defaults.", e);
                 Ok(Settings::default())
             }
         }
@@ -95,18 +98,18 @@ impl SettingsManager {
     pub fn save(&self, settings: &Settings) -> RacResult<()> {
         let json = serde_json::to_string_pretty(settings)?;
 
+        let temp_path = self.settings_path.with_extension("tmp");
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&self.settings_path)?;
+            .open(&temp_path)?;
 
         file.write_all(json.as_bytes())?;
-
-        file.flush()?;
-
         file.sync_all()?;
+        drop(file);
 
+        std::fs::rename(&temp_path, &self.settings_path)?;
         Ok(())
     }
 
