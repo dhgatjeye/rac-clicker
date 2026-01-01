@@ -111,7 +111,13 @@ impl UpdateChecker {
                 PCWSTR::null(),
                 0,
             ))
-            .ok_or_else(|| RacError::UpdateError("Failed to open WinHTTP session".into()))?;
+            .ok_or_else(|| {
+                let error_code = windows::Win32::Foundation::GetLastError().0;
+                RacError::UpdateError(format!(
+                    "Failed to open WinHTTP session (error code: 0x{:X})",
+                    error_code
+                ))
+            })?;
 
             let protocols: u32 =
                 WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
@@ -129,7 +135,13 @@ impl UpdateChecker {
                 port,
                 0,
             ))
-            .ok_or_else(|| RacError::UpdateError("Failed to connect to server".into()))?;
+            .ok_or_else(|| {
+                let error_code = windows::Win32::Foundation::GetLastError().0;
+                RacError::UpdateError(format!(
+                    "Failed to connect to {} (error code: 0x{:X})",
+                    host, error_code
+                ))
+            })?;
 
             let request = WinHttpHandle::new(WinHttpOpenRequest(
                 connect.as_ptr(),
@@ -140,19 +152,50 @@ impl UpdateChecker {
                 std::ptr::null(),
                 WINHTTP_FLAG_SECURE,
             ))
-            .ok_or_else(|| RacError::UpdateError("Failed to open request".into()))?;
+            .ok_or_else(|| {
+                let error_code = windows::Win32::Foundation::GetLastError().0;
+                RacError::UpdateError(format!(
+                    "Failed to open request (error code: 0x{:X})",
+                    error_code
+                ))
+            })?;
 
             WinHttpSetTimeouts(request.as_ptr(), 30000, 30000, 30000, 30000)
-                .map_err(|_| RacError::UpdateError("Failed to set timeout".into()))?;
+                .map_err(|e| RacError::UpdateError(format!("Failed to set timeout: {:?}", e)))?;
+
+            let redirect_policy: u32 = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+            let _ = WinHttpSetOption(
+                Some(request.as_ptr() as *const _),
+                WINHTTP_OPTION_REDIRECT_POLICY,
+                Some(&redirect_policy.to_ne_bytes()),
+            );
+
+            let decompression: u32 =
+                WINHTTP_DECOMPRESSION_FLAG_GZIP | WINHTTP_DECOMPRESSION_FLAG_DEFLATE;
+            let _ = WinHttpSetOption(
+                Some(request.as_ptr() as *const _),
+                WINHTTP_OPTION_DECOMPRESSION,
+                Some(&decompression.to_ne_bytes()),
+            );
 
             let headers = HSTRING::from("User-Agent: RAC-Updater/1.0\r\n");
             let _ = WinHttpAddRequestHeaders(request.as_ptr(), &headers, WINHTTP_ADDREQ_FLAG_ADD);
 
-            WinHttpSendRequest(request.as_ptr(), None, None, 0, 0, 0)
-                .map_err(|_| RacError::UpdateError("Failed to send request".into()))?;
+            WinHttpSendRequest(request.as_ptr(), None, None, 0, 0, 0).map_err(|e| {
+                let error_code = windows::Win32::Foundation::GetLastError().0;
+                RacError::UpdateError(format!(
+                    "Failed to send request (error code: 0x{:X}, details: {:?})",
+                    error_code, e
+                ))
+            })?;
 
-            WinHttpReceiveResponse(request.as_ptr(), std::ptr::null_mut())
-                .map_err(|_| RacError::UpdateError("Failed to receive response".into()))?;
+            WinHttpReceiveResponse(request.as_ptr(), std::ptr::null_mut()).map_err(|e| {
+                let error_code = windows::Win32::Foundation::GetLastError().0;
+                RacError::UpdateError(format!(
+                    "Failed to receive response (error code: 0x{:X}, details: {:?})",
+                    error_code, e
+                ))
+            })?;
 
             let status_code = query_status_code(request.as_ptr())?;
             if status_code != 200 {
