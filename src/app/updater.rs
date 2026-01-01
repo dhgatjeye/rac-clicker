@@ -238,7 +238,7 @@ fn download_and_install_update(
             Ok(DownloadProgress::Error(err)) => {
                 println!("\n\nUpdate failed: {}", err);
                 println!("RAC will continue with current version.\n");
-                thread::sleep(Duration::from_secs(2));
+                thread::sleep(Duration::from_secs(3));
 
                 if let Err(_e) = download_handle.join() {
                     #[cfg(debug_assertions)]
@@ -252,7 +252,7 @@ fn download_and_install_update(
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 println!("\n\nUpdate communication error!");
                 println!("RAC will continue with current version.\n");
-                thread::sleep(Duration::from_secs(2));
+                thread::sleep(Duration::from_secs(3));
                 return Ok(());
             }
         }
@@ -280,7 +280,7 @@ fn download_and_install_update(
         Err(e) => {
             println!("\n\nUpdate installation failed: {}", e);
             println!("RAC will continue with current version.\n");
-            thread::sleep(Duration::from_secs(2));
+            thread::sleep(Duration::from_secs(3));
             Ok(())
         }
     }
