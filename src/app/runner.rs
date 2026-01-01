@@ -1,14 +1,13 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
-use std::time::Duration;
-
 use crate::clicker::{ClickController, ClickExecutor, DelayCalculator};
 use crate::config::ConfigProfile;
 use crate::core::{MouseButton, RacError, RacResult};
 use crate::input::{HotkeyManager, InputMonitor};
 use crate::thread::{ClickWorker, ThreadManager, WorkerConfig};
 use crate::window::{WindowFinder, WindowHandle, WindowWatcher};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
+use std::time::Duration;
 
 pub struct RacApp {
     profile: ConfigProfile,
@@ -228,6 +227,7 @@ impl RacApp {
 
     fn shutdown(&mut self) {
         self.input_monitor_stop.store(true, Ordering::Release);
+
         if let Some(handle) = self.input_monitor_handle.take()
             && let Err(_e) = handle.join()
         {
@@ -235,15 +235,18 @@ impl RacApp {
             eprintln!("Input monitor thread panicked: {:?}", _e);
         }
 
-        if let Some(ref mut watcher) = self.window_watcher {
+        if let Some(mut watcher) = self.window_watcher.take() {
             watcher.stop();
         }
 
-        let mut tm = self
-            .thread_manager
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _ = tm.stop_all();
+        if let Ok(mut tm) = self.thread_manager.lock() {
+            let _ = tm.stop_all();
+        } else {
+            #[cfg(debug_assertions)]
+            eprintln!("Failed to lock thread manager during shutdown.");
+        }
+
+        self.window_handle.clear();
     }
 
     fn lock_thread_manager(&self) -> RacResult<std::sync::MutexGuard<'_, ThreadManager>> {

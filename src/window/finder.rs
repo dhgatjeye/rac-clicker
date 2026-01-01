@@ -1,7 +1,7 @@
 use crate::core::{RacError, RacResult};
 use crate::window::WindowHandle;
 use std::sync::atomic::{AtomicU32, Ordering};
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
@@ -9,6 +9,33 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
 };
 use windows::core::BOOL;
+
+struct SnapshotHandle(HANDLE);
+
+impl SnapshotHandle {
+    fn new() -> RacResult<Self> {
+        unsafe {
+            CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+                .map(Self)
+                .map_err(|e| RacError::WindowError(format!("Failed to create snapshot: {}", e)))
+        }
+    }
+
+    fn handle(&self) -> HANDLE {
+        self.0
+    }
+}
+
+impl Drop for SnapshotHandle {
+    fn drop(&mut self) {
+        unsafe {
+            if let Err(_e) = CloseHandle(self.0) {
+                #[cfg(debug_assertions)]
+                eprintln!("Failed to close snapshot handle: {}", _e);
+            }
+        }
+    }
+}
 
 pub struct WindowFinder {
     target_process: String,
@@ -48,15 +75,14 @@ impl WindowFinder {
 
     fn find_process_by_name(&self) -> RacResult<Option<u32>> {
         unsafe {
-            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-                .map_err(|e| RacError::WindowError(format!("Failed to create snapshot: {}", e)))?;
+            let snapshot = SnapshotHandle::new()?;
 
             let mut entry = PROCESSENTRY32W {
                 dwSize: size_of::<PROCESSENTRY32W>() as u32,
                 ..Default::default()
             };
 
-            if Process32FirstW(snapshot, &mut entry).is_ok() {
+            if Process32FirstW(snapshot.handle(), &mut entry).is_ok() {
                 loop {
                     let name_len = entry
                         .szExeFile
@@ -66,18 +92,15 @@ impl WindowFinder {
                     let exe_name = String::from_utf16_lossy(&entry.szExeFile[..name_len]);
 
                     if exe_name.eq_ignore_ascii_case(&self.target_process) {
-                        let pid = entry.th32ProcessID;
-                        let _ = CloseHandle(snapshot);
-                        return Ok(Some(pid));
+                        return Ok(Some(entry.th32ProcessID));
                     }
 
-                    if Process32NextW(snapshot, &mut entry).is_err() {
+                    if Process32NextW(snapshot.handle(), &mut entry).is_err() {
                         break;
                     }
                 }
             }
 
-            let _ = CloseHandle(snapshot);
             Ok(None)
         }
     }

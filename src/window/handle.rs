@@ -26,6 +26,10 @@ impl WindowHandle {
     pub fn set(&self, hwnd: HWND) {
         self.hwnd.store(hwnd.0, Ordering::Release);
     }
+
+    pub fn clear(&self) {
+        self.hwnd.store(std::ptr::null_mut(), Ordering::Release);
+    }
 }
 
 unsafe impl Send for WindowHandle {}
