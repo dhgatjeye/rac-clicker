@@ -1,6 +1,11 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
+const THRESHOLD_PURE_SPIN: u64 = 1;
+const THRESHOLD_CALIBRATED: u64 = 20;
+const THRESHOLD_MICRO: u64 = 100;
+const THRESHOLD_BALANCED: u64 = 500;
+
 pub struct PrecisionSleep;
 
 impl PrecisionSleep {
@@ -11,24 +16,24 @@ impl PrecisionSleep {
             return;
         }
 
-        if nanos < 1_000 {
+        if nanos < (THRESHOLD_PURE_SPIN * 1_000) as u128 {
             Self::pure_spin(duration);
             return;
         }
 
         let micros = (nanos / 1_000) as u64;
 
-        if micros < 20 {
+        if micros < THRESHOLD_CALIBRATED {
             Self::calibrated_spin(duration);
             return;
         }
 
-        if micros < 100 {
+        if micros < THRESHOLD_MICRO {
             Self::micro_sleep(duration);
             return;
         }
 
-        if micros < 500 {
+        if micros < THRESHOLD_BALANCED {
             Self::balanced_hybrid(duration);
             return;
         }
