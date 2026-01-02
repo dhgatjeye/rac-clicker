@@ -85,7 +85,12 @@ impl WindowWatcher {
             return true;
         }
 
-        let guard = cv.0.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = cv.0.lock().unwrap_or_else(|poisoned| {
+            #[cfg(debug_assertions)]
+            eprintln!("Mutex poisoned in window watcher: {}", poisoned);
+            poisoned.into_inner()
+        });
+
         let _ =
             cv.1.wait_timeout_while(guard, duration, |_| !stop.load(Ordering::Acquire));
 
