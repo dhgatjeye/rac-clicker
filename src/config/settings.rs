@@ -81,8 +81,8 @@ impl SettingsManager {
     fn backup_corrupted_file(&self) -> RacResult<()> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or_else(|_| std::process::id() as u64);
 
         let backup_path = self
             .settings_path
