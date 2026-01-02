@@ -4,6 +4,8 @@ use crate::core::{MouseButton, ServerType};
 use crate::servers::{ServerTiming, get_server_timing};
 use std::time::{Duration, Instant};
 
+const MICROS_PER_SECOND: u64 = 1_000_000;
+
 pub struct DelayCalculator {
     pattern: ClickPattern,
     button: MouseButton,
@@ -45,9 +47,9 @@ impl DelayCalculator {
 
     fn calculate_base_cps_delay(&self, target_cps: u8) -> u64 {
         if target_cps == 0 {
-            1_000_000
+            MICROS_PER_SECOND
         } else {
-            1_000_000 / target_cps as u64
+            MICROS_PER_SECOND / target_cps as u64
         }
     }
 
@@ -65,10 +67,12 @@ impl DelayCalculator {
         let (min_cps, _max_cps, hard_limit) = self.get_cps_limits();
 
         match self.pattern.max_cps {
-            cps if cps >= hard_limit => (1_000_000 / hard_limit as u64).saturating_sub(down_time),
+            cps if cps >= hard_limit => {
+                (MICROS_PER_SECOND / hard_limit as u64).saturating_sub(down_time)
+            }
             _ => {
                 let target_cps = self.pattern.max_cps.max(min_cps);
-                (1_000_000 / target_cps as u64).saturating_sub(down_time)
+                (MICROS_PER_SECOND / target_cps as u64).saturating_sub(down_time)
             }
         }
     }
@@ -96,7 +100,7 @@ impl DelayCalculator {
         };
         let min_delay = self.calculate_min_delay(down_time);
 
-        let hard_limit_delay = (1_000_000 / hard_limit as u64).saturating_sub(down_time);
+        let hard_limit_delay = (MICROS_PER_SECOND / hard_limit as u64).saturating_sub(down_time);
 
         let final_delay = boosted_delay.max(min_delay).max(hard_limit_delay);
 
@@ -144,7 +148,7 @@ impl DelayCalculator {
             self.pattern.max_cps
         };
 
-        let target_period_us = 1_000_000 / effective_cps as u64;
+        let target_period_us = MICROS_PER_SECOND / effective_cps as u64;
 
         if let Some(last_ts) = self.click_history.get_last_timestamp() {
             let current_us = now.duration_since(self.click_history.epoch).as_micros() as u64;
@@ -162,8 +166,8 @@ impl DelayCalculator {
             let current_us = now.duration_since(self.click_history.epoch).as_micros() as u64;
             let window_us = current_us.saturating_sub(oldest_ts);
 
-            if window_us < 1_000_000 {
-                let needed = (1_000_000 - window_us) / 2;
+            if window_us < MICROS_PER_SECOND {
+                let needed = (MICROS_PER_SECOND - window_us) / 2;
                 delay = delay.max(needed);
             }
         }
