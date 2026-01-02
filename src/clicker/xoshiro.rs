@@ -26,8 +26,8 @@ impl Xoshiro256 {
     pub fn from_entropy() -> Self {
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or_else(|_| std::process::id() as u64 ^ 0x123456789abcdef0);
 
         Self::new(seed)
     }
