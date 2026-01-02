@@ -209,10 +209,10 @@ impl RacApp {
     fn main_loop(&mut self) -> RacResult<()> {
         let exit_signal = Arc::clone(&self.exit_signal);
         let (lock, cvar) = &*exit_signal;
-        let mut exit_requested = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut exit_requested = lock.lock()?;
 
         while !*exit_requested {
-            exit_requested = cvar.wait(exit_requested).unwrap_or_else(|e| e.into_inner());
+            exit_requested = cvar.wait(exit_requested)?;
         }
 
         drop(exit_requested);
