@@ -47,8 +47,8 @@ impl std::str::FromStr for ServerType {
 }
 
 impl ServerType {
-    pub fn all() -> Vec<Self> {
-        vec![Self::Craftrise, Self::Sonoyuncu, Self::Custom]
+    pub const fn all() -> &'static [Self] {
+        &[Self::Craftrise, Self::Sonoyuncu, Self::Custom]
     }
 }
 
