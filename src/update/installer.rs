@@ -409,7 +409,9 @@ catch {{
             })
             .collect();
 
-        backups.sort_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
+        backups.retain(|entry| entry.metadata().and_then(|m| m.modified()).is_ok());
+
+        backups.sort_by_key(|entry| entry.metadata().and_then(|m| m.modified()).unwrap());
         backups.reverse();
 
         for backup in backups.iter().skip(1) {
