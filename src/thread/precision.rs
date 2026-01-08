@@ -1,8 +1,6 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-const THRESHOLD_PURE_SPIN: u64 = 1;
-const THRESHOLD_CALIBRATED: u64 = 20;
 const THRESHOLD_MICRO: u64 = 100;
 const THRESHOLD_BALANCED: u64 = 500;
 
@@ -16,17 +14,7 @@ impl PrecisionSleep {
             return;
         }
 
-        if nanos < (THRESHOLD_PURE_SPIN * 1_000) as u128 {
-            Self::pure_spin(duration);
-            return;
-        }
-
         let micros = (nanos / 1_000) as u64;
-
-        if micros < THRESHOLD_CALIBRATED {
-            Self::calibrated_spin(duration);
-            return;
-        }
 
         if micros < THRESHOLD_MICRO {
             Self::micro_sleep(duration);
@@ -42,33 +30,6 @@ impl PrecisionSleep {
     }
 
     #[inline]
-    fn pure_spin(duration: Duration) {
-        let deadline = Instant::now() + duration;
-
-        while Instant::now() < deadline {
-            std::hint::spin_loop();
-        }
-    }
-
-    #[inline]
-    fn calibrated_spin(duration: Duration) {
-        let deadline = Instant::now() + duration;
-        let mut check_counter = 0u32;
-
-        loop {
-            for _ in 0..8 {
-                std::hint::spin_loop();
-            }
-
-            check_counter += 1;
-
-            if check_counter & 0xF == 0 && Instant::now() >= deadline {
-                break;
-            }
-        }
-    }
-
-    #[inline]
     fn micro_sleep(duration: Duration) {
         let micros = duration.as_micros() as u64;
 
@@ -81,13 +42,13 @@ impl PrecisionSleep {
         let mut check_counter = 0u32;
 
         loop {
-            for _ in 0..4 {
+            for _ in 0..8 {
                 std::hint::spin_loop();
             }
 
             check_counter += 1;
 
-            if check_counter & 0x7 == 0 && Instant::now() >= deadline {
+            if check_counter & 0xF == 0 && Instant::now() >= deadline {
                 break;
             }
         }
@@ -104,13 +65,13 @@ impl PrecisionSleep {
         let mut check_counter = 0u32;
 
         loop {
-            for _ in 0..8 {
+            for _ in 0..16 {
                 std::hint::spin_loop();
             }
 
             check_counter += 1;
 
-            if check_counter & 0xF == 0 && Instant::now() >= deadline {
+            if check_counter & 0x1F == 0 && Instant::now() >= deadline {
                 break;
             }
         }
@@ -127,13 +88,13 @@ impl PrecisionSleep {
         let mut check_counter = 0u32;
 
         loop {
-            for _ in 0..16 {
+            for _ in 0..32 {
                 std::hint::spin_loop();
             }
 
             check_counter += 1;
 
-            if check_counter & 0x1F == 0 {
+            if check_counter & 0x3F == 0 {
                 if Instant::now() >= deadline {
                     break;
                 }
