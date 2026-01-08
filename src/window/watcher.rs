@@ -4,7 +4,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-const SEARCH_INTERVAL: Duration = Duration::from_millis(500);
+const SEARCH_INTERVAL: Duration = Duration::from_millis(1000);
 const FOUND_INTERVAL: Duration = Duration::from_secs(5);
 
 pub struct WindowWatcher {
