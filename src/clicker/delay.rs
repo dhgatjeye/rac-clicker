@@ -86,9 +86,10 @@ impl DelayCalculator {
             MouseButton::Right => self.server_timing.right_first_hit_boost(),
         };
 
-        let base_cps_delay = self.calculate_base_cps_delay(target_cps);
+        let effective_cps = target_cps.max(hard_limit);
+        let base_cps_delay = self.calculate_base_cps_delay(effective_cps);
 
-        let boosted_delay = if target_cps > min_cps && target_cps < hard_limit {
+        let boosted_delay = if target_cps >= min_cps {
             (base_cps_delay * (100 - boost as u64)) / 100
         } else {
             base_cps_delay
@@ -98,11 +99,10 @@ impl DelayCalculator {
             MouseButton::Left => self.server_timing.hold_duration_us().0,
             MouseButton::Right => self.server_timing.right_hold_duration_us().0,
         };
-        let min_delay = self.calculate_min_delay(down_time);
 
         let hard_limit_delay = (MICROS_PER_SECOND / hard_limit as u64).saturating_sub(down_time);
 
-        let final_delay = boosted_delay.max(min_delay).max(hard_limit_delay);
+        let final_delay = boosted_delay.max(hard_limit_delay);
 
         Duration::from_micros(final_delay)
     }
@@ -184,6 +184,18 @@ impl DelayCalculator {
     pub fn next_delay(&mut self) -> Duration {
         if let Some(remaining) = self.check_penalty() {
             return remaining;
+        }
+
+        let now = Instant::now();
+        let time_since_last_click = if let Some(last_ts) = self.click_history.get_last_timestamp() {
+            let current_us = now.duration_since(self.click_history.epoch).as_micros() as u64;
+            current_us.saturating_sub(last_ts)
+        } else {
+            u64::MAX
+        };
+
+        if time_since_last_click > 300_000 {
+            self.was_pressed = false;
         }
 
         if !self.was_pressed {
