@@ -27,7 +27,11 @@ impl Version {
 
         let parts: Vec<&str> = s.split('.').collect();
         if parts.len() != 3 {
-            return Err(VersionError::InvalidFormat(s.to_string()));
+            return Err(VersionError::InvalidFormat(format!(
+                "Expected 3 parts (major.minor.patch), got {}: '{}'",
+                parts.len(),
+                s
+            )));
         }
 
         let major = parts[0]
