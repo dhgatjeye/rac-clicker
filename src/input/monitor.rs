@@ -4,6 +4,8 @@ use crate::thread::ThreadManager;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
+use std::time::Duration;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_Q};
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
 
@@ -70,8 +72,27 @@ impl InputMonitor {
             let len = GetWindowTextW(foreground, &mut title);
 
             if len > 0 {
-                let title_str = String::from_utf16_lossy(&title[..len as usize]);
-                return title_str.contains("RAC v2 Main Menu");
+                const PATTERN: &[u16] = &[
+                    b'R' as u16,
+                    b'A' as u16,
+                    b'C' as u16,
+                    b' ' as u16,
+                    b'v' as u16,
+                    b'2' as u16,
+                    b' ' as u16,
+                    b'M' as u16,
+                    b'a' as u16,
+                    b'i' as u16,
+                    b'n' as u16,
+                    b' ' as u16,
+                    b'M' as u16,
+                    b'e' as u16,
+                    b'n' as u16,
+                    b'u' as u16,
+                ];
+
+                let title_slice = &title[..len as usize];
+                return title_slice.windows(PATTERN.len()).any(|w| w == PATTERN);
             }
 
             false
@@ -104,6 +125,8 @@ impl InputMonitor {
             if self.rac_enabled {
                 self.process_action_keys(&thread_manager);
             }
+
+            thread::sleep(Duration::from_millis(1));
         }
     }
 
