@@ -20,7 +20,7 @@ impl ServerTiming for CraftriseTiming {
     }
 
     fn left_combo_interval(&self) -> u8 {
-        3
+        2
     }
 
     fn right_combo_interval(&self) -> u8 {
