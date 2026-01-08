@@ -1,6 +1,11 @@
 use crate::core::{RacError, RacResult};
 use crate::update::version::Version;
 use serde::{Deserialize, Serialize};
+use std::thread;
+use std::time::Duration;
+
+const MAX_RETRIES: u8 = 3;
+const INITIAL_RETRY_DELAY_MS: u64 = 1000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseInfo {
@@ -74,28 +79,58 @@ impl UpdateChecker {
             self.owner, self.repo
         );
 
-        let release_data = self.fetch_release_info(&url)?;
-        let latest_version = Version::parse(&release_data.tag_name)
-            .map_err(|e| RacError::UpdateError(format!("Invalid version in release: {}", e)))?;
+        let mut attempts = 0;
+        let mut last_error = None;
 
-        if !latest_version.is_newer_than(&self.current_version) {
-            return Ok(None);
+        while attempts < MAX_RETRIES {
+            match self.fetch_release_info(&url) {
+                Ok(release_data) => {
+                    let latest_version = Version::parse(&release_data.tag_name).map_err(|e| {
+                        RacError::UpdateError(format!("Invalid version in release: {}", e))
+                    })?;
+
+                    if !latest_version.is_newer_than(&self.current_version) {
+                        return Ok(None);
+                    }
+
+                    let exe_asset = release_data
+                        .assets
+                        .iter()
+                        .find(|a| a.name.ends_with(".exe"))
+                        .ok_or_else(|| {
+                            RacError::UpdateError(
+                                "No Windows executable found in release".to_string(),
+                            )
+                        })?;
+
+                    return Ok(Some(ReleaseInfo {
+                        version: latest_version,
+                        download_url: exe_asset.browser_download_url.clone(),
+                        release_name: release_data.name,
+                        release_notes: release_data.body,
+                        asset_size: exe_asset.size,
+                    }));
+                }
+                Err(e) => {
+                    attempts += 1;
+                    last_error = Some(e);
+
+                    if let Some(ref err) = last_error
+                        && (err.to_string().contains("404") || err.to_string().contains("403"))
+                    {
+                        return Err(last_error.unwrap());
+                    }
+
+                    if attempts < MAX_RETRIES {
+                        let delay = INITIAL_RETRY_DELAY_MS * 2u64.pow((attempts - 1) as u32);
+                        thread::sleep(Duration::from_millis(delay));
+                    }
+                }
+            }
         }
 
-        let exe_asset = release_data
-            .assets
-            .iter()
-            .find(|a| a.name.ends_with(".exe"))
-            .ok_or_else(|| {
-                RacError::UpdateError("No Windows executable found in release".to_string())
-            })?;
-
-        Ok(Some(ReleaseInfo {
-            version: latest_version,
-            download_url: exe_asset.browser_download_url.clone(),
-            release_name: release_data.name,
-            release_notes: release_data.body,
-            asset_size: exe_asset.size,
+        Err(last_error.unwrap_or_else(|| {
+            RacError::UpdateError("Failed to check for updates after retries".to_string())
         }))
     }
 
@@ -104,8 +139,9 @@ impl UpdateChecker {
         use windows::core::{HSTRING, PCWSTR};
 
         unsafe {
+            let user_agent = format!("RAC-Updater/{}", env!("CARGO_PKG_VERSION"));
             let session = WinHttpHandle::new(WinHttpOpen(
-                &HSTRING::from("RAC-Updater/1.0"),
+                &HSTRING::from(user_agent),
                 WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                 PCWSTR::null(),
                 PCWSTR::null(),
@@ -178,7 +214,10 @@ impl UpdateChecker {
                 Some(&decompression.to_ne_bytes()),
             );
 
-            let headers = HSTRING::from("User-Agent: RAC-Updater/1.0\r\n");
+            let headers = HSTRING::from(format!(
+                "User-Agent: RAC-Updater/{}\r\n",
+                env!("CARGO_PKG_VERSION")
+            ));
             let _ = WinHttpAddRequestHeaders(request.as_ptr(), &headers, WINHTTP_ADDREQ_FLAG_ADD);
 
             WinHttpSendRequest(request.as_ptr(), None, None, 0, 0, 0).map_err(|e| {
@@ -198,11 +237,40 @@ impl UpdateChecker {
             })?;
 
             let status_code = query_status_code(request.as_ptr())?;
-            if status_code != 200 {
-                return Err(RacError::UpdateError(format!(
-                    "HTTP error: {}",
-                    status_code
-                )));
+
+            match status_code {
+                200 => {}
+                304 => {
+                    return Err(RacError::UpdateError("Not modified (304)".to_string()));
+                }
+                403 => {
+                    return Err(RacError::UpdateError(
+                        "GitHub API access forbidden (403). Possible rate limit or authentication issue.".to_string()
+                    ));
+                }
+                404 => {
+                    return Err(RacError::UpdateError(
+                        "Release not found (404). Repository may not exist or no releases published.".to_string()
+                    ));
+                }
+                429 => {
+                    return Err(RacError::UpdateError(
+                        "Rate limited (429). GitHub API limit exceeded. Try again later."
+                            .to_string(),
+                    ));
+                }
+                500..=599 => {
+                    return Err(RacError::UpdateError(format!(
+                        "GitHub server error ({}). Service temporarily unavailable.",
+                        status_code
+                    )));
+                }
+                _ => {
+                    return Err(RacError::UpdateError(format!(
+                        "HTTP error: {}",
+                        status_code
+                    )));
+                }
             }
 
             let response_data = read_response_body(request.as_ptr())?;
