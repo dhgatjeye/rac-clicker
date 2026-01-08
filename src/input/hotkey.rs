@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,8 +7,11 @@ pub enum HotkeyEvent {
     Held,
 }
 
+#[repr(C, align(64))]
 pub struct HotkeyManager {
-    hotkeys: HashMap<i32, bool>,
+    key_states: [bool; 256],
+    registered: [i32; 8],
+    count: u8,
 }
 
 impl Default for HotkeyManager {
@@ -19,35 +21,54 @@ impl Default for HotkeyManager {
 }
 
 impl HotkeyManager {
+    #[inline]
     pub fn new() -> Self {
         Self {
-            hotkeys: HashMap::new(),
+            key_states: [false; 256],
+            registered: [0; 8],
+            count: 0,
         }
     }
 
+    #[inline]
     pub fn register(&mut self, vk_code: i32) {
-        if vk_code != 0 {
-            self.hotkeys.insert(vk_code, false);
+        if vk_code <= 0 || vk_code > 255 {
+            return;
+        }
+
+        for i in 0..self.count as usize {
+            if self.registered[i] == vk_code {
+                return;
+            }
+        }
+
+        if (self.count as usize) < self.registered.len() {
+            self.registered[self.count as usize] = vk_code;
+            self.count += 1;
         }
     }
 
+    #[inline(always)]
     pub fn is_pressed(&self, vk_code: i32) -> bool {
-        if vk_code == 0 {
+        if vk_code <= 0 || vk_code > 255 {
             return false;
         }
 
         unsafe { GetAsyncKeyState(vk_code) < 0 }
     }
 
+    #[inline]
     pub fn poll(&mut self, vk_code: i32) -> Option<HotkeyEvent> {
-        if vk_code == 0 {
+        if vk_code <= 0 || vk_code > 255 {
             return None;
         }
 
         let current_state = self.is_pressed(vk_code);
-        let last_state = self.hotkeys.get(&vk_code).copied().unwrap_or(false);
+        let last_state = unsafe { *self.key_states.get_unchecked(vk_code as usize) };
 
-        self.hotkeys.insert(vk_code, current_state);
+        unsafe {
+            *self.key_states.get_unchecked_mut(vk_code as usize) = current_state;
+        }
 
         match (last_state, current_state) {
             (false, true) => Some(HotkeyEvent::Pressed),
@@ -57,6 +78,7 @@ impl HotkeyManager {
         }
     }
 
+    #[inline]
     pub fn check_toggle(&mut self, vk_code: i32) -> bool {
         matches!(self.poll(vk_code), Some(HotkeyEvent::Pressed))
     }
