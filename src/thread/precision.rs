@@ -42,13 +42,13 @@ impl PrecisionSleep {
         let mut check_counter = 0u32;
 
         loop {
-            for _ in 0..8 {
+            for _ in 0..4 {
                 std::hint::spin_loop();
             }
 
             check_counter += 1;
 
-            if check_counter & 0xF == 0 && Instant::now() >= deadline {
+            if check_counter & 0x7 == 0 && Instant::now() >= deadline {
                 break;
             }
         }
@@ -65,13 +65,13 @@ impl PrecisionSleep {
         let mut check_counter = 0u32;
 
         loop {
-            for _ in 0..16 {
+            for _ in 0..8 {
                 std::hint::spin_loop();
             }
 
             check_counter += 1;
 
-            if check_counter & 0x1F == 0 && Instant::now() >= deadline {
+            if check_counter & 0xF == 0 && Instant::now() >= deadline {
                 break;
             }
         }
@@ -88,13 +88,13 @@ impl PrecisionSleep {
         let mut check_counter = 0u32;
 
         loop {
-            for _ in 0..32 {
+            for _ in 0..16 {
                 std::hint::spin_loop();
             }
 
             check_counter += 1;
 
-            if check_counter & 0x3F == 0 {
+            if check_counter & 0x1F == 0 {
                 if Instant::now() >= deadline {
                     break;
                 }
