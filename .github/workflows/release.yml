@@ -136,15 +136,29 @@ jobs:
             LATEST_TAG="${{ steps.latest_tag.outputs.LATEST_TAG }}"
             COMPARE_URL="$REPO_URL/compare/$LATEST_TAG...$TAG"
           
-            echo "Generating changelog from $LATEST_TAG to $TAG"
+            echo "Generating changelog from $LATEST_TAG to HEAD"
+            echo "Latest tag commit:"
+            git log -1 --oneline "$LATEST_TAG"
+            echo ""
+            echo "Current HEAD:"
+            git log -1 --oneline HEAD
+            echo ""
           
-            # Get commits between tags
+
             CHANGELOG="**Full Changelog**: $COMPARE_URL
 
           "
           
-            # Process commits and filter out [release] commits
-            while IFS='|' read -r HASH MESSAGE; do
+            # Count total commits for debugging
+            TOTAL_COMMITS=$(git rev-list "$LATEST_TAG..HEAD" --count)
+            echo "Total commits between $LATEST_TAG and HEAD: $TOTAL_COMMITS"
+            echo ""
+          
+            # Process commits with proper date ordering
+            while IFS='|' read -r HASH DATE MESSAGE; do
+              # Skip empty lines
+              [ -z "$HASH" ] && continue
+              
               # Skip commits that start with [release]
               if [[ "$MESSAGE" =~ ^\[release\] ]]; then
                 echo "Skipping release commit: $MESSAGE"
@@ -152,9 +166,10 @@ jobs:
               fi
           
               COMMIT_URL="$REPO_URL/commit/$HASH"
-              CHANGELOG="${CHANGELOG}- [$MESSAGE]($COMMIT_URL)
+              # Format: - [commit message](link) (date)
+              CHANGELOG="${CHANGELOG}- [\`${HASH:0:7}\`]($COMMIT_URL) $MESSAGE *(${DATE})*
           "
-            done < <(git log "$LATEST_TAG..HEAD" --pretty=format:"%H|%s" --date-order)
+            done < <(git log "$LATEST_TAG..HEAD" --pretty=format:"%H|%cs|%s" --reverse --no-merges)
           
           else
             echo "No previous tag found, listing all commits"
@@ -162,8 +177,16 @@ jobs:
 
           "
           
-            # Process all commits and filter out [release] commits
-            while IFS='|' read -r HASH MESSAGE; do
+            # Count total commits for debugging
+            TOTAL_COMMITS=$(git rev-list HEAD --count)
+            echo "Total commits in repository: $TOTAL_COMMITS"
+            echo ""
+          
+            # Process all commits with proper date ordering
+            while IFS='|' read -r HASH DATE MESSAGE; do
+              # Skip empty lines
+              [ -z "$HASH" ] && continue
+              
               # Skip commits that start with [release]
               if [[ "$MESSAGE" =~ ^\[release\] ]]; then
                 echo "Skipping release commit: $MESSAGE"
@@ -171,16 +194,18 @@ jobs:
               fi
           
               COMMIT_URL="$REPO_URL/commit/$HASH"
-              CHANGELOG="${CHANGELOG}- [$MESSAGE]($COMMIT_URL)
+              CHANGELOG="${CHANGELOG}- [\`${HASH:0:7}\`]($COMMIT_URL) $MESSAGE *(${DATE})*
           "
-            done < <(git log --pretty=format:"%H|%s" --date-order)
+            done < <(git log --pretty=format:"%H|%cs|%s" --reverse --no-merges)
           fi
           
           # Save to file for GitHub release
           echo "$CHANGELOG" > CHANGELOG.txt
           
-          echo "Changelog generated:"
+          echo "Changelog generated successfully!"
+          echo "================================"
           cat CHANGELOG.txt
+          echo "================================"
 
       - name: Create Release
         if: ${{ !inputs.dry_run }}
