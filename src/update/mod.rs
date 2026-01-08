@@ -11,6 +11,34 @@ use crate::core::RacResult;
 use checker::UpdateChecker;
 use downloader::Downloader;
 use installer::UpdateInstaller;
+use std::path::PathBuf;
+
+struct TempFileGuard {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, keep: false }
+    }
+
+    fn keep(&mut self) {
+        self.keep = true;
+    }
+
+    fn path(&self) -> &PathBuf {
+        &self.path
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if !self.keep && self.path.exists() {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct UpdateManager {
@@ -48,15 +76,18 @@ impl UpdateManager {
 
         let download_path = temp_dir.join(format!("rac-clicker-v{}.exe", release.version));
 
+        let mut temp_guard = TempFileGuard::new(download_path.clone());
+
         println!("Downloading from: {}", release.download_url);
-        let downloaded =
-            self.downloader
-                .download(&release.download_url, &download_path, progress_callback)?;
+        self.downloader
+            .download(&release.download_url, temp_guard.path(), progress_callback)?;
 
         println!("✓ Download complete!");
 
         println!("Installing update...");
-        self.installer.install_update(&downloaded)?;
+        self.installer.install_update(temp_guard.path())?;
+
+        temp_guard.keep();
 
         Ok(())
     }
