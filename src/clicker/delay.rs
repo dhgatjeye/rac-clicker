@@ -187,18 +187,6 @@ impl DelayCalculator {
             return remaining;
         }
 
-        let now = Instant::now();
-        let time_since_last_click = if let Some(last_ts) = self.click_history.get_last_timestamp() {
-            let current_us = now.duration_since(self.click_history.epoch).as_micros() as u64;
-            current_us.saturating_sub(last_ts)
-        } else {
-            u64::MAX
-        };
-
-        if time_since_last_click > 300_000 {
-            self.was_pressed = false;
-        }
-
         if !self.was_pressed {
             self.was_pressed = true;
             self.combo_counter = 0;
