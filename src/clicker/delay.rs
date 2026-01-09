@@ -78,7 +78,7 @@ impl DelayCalculator {
     }
 
     fn calculate_first_hit_delay(&self) -> Duration {
-        let (min_cps, _max_cps, hard_limit) = self.get_cps_limits();
+        let (_, _max_cps, hard_limit) = self.get_cps_limits();
         let target_cps = self.pattern.max_cps;
 
         let boost = match self.button {
@@ -89,7 +89,7 @@ impl DelayCalculator {
         let effective_cps = target_cps.max(hard_limit);
         let base_cps_delay = self.calculate_base_cps_delay(effective_cps);
 
-        let boosted_delay = if target_cps >= min_cps {
+        let boosted_delay = if target_cps < hard_limit {
             (base_cps_delay * (100 - boost as u64)) / 100
         } else {
             base_cps_delay
@@ -100,9 +100,10 @@ impl DelayCalculator {
             MouseButton::Right => self.server_timing.right_hold_duration_us().0,
         };
 
+        let min_delay = self.calculate_min_delay(down_time);
         let hard_limit_delay = (MICROS_PER_SECOND / hard_limit as u64).saturating_sub(down_time);
 
-        let final_delay = boosted_delay.max(hard_limit_delay);
+        let final_delay = boosted_delay.max(min_delay).max(hard_limit_delay);
 
         Duration::from_micros(final_delay)
     }
@@ -228,7 +229,14 @@ impl DelayCalculator {
 
         adjusted_delay = self.enforce_cps_limit(adjusted_delay);
 
-        let jitter = self.rng.random_range_i64(-40, 40);
+        let jitter_base = self.rng.random_range_i64(-60, 60);
+        let jitter_extra = if self.rng.random_range_u64(0, 100) < 30 {
+            self.rng.random_range_i64(-60, 60)
+        } else {
+            0
+        };
+
+        let jitter = jitter_base + jitter_extra;
         adjusted_delay = adjusted_delay.saturating_add_signed(jitter);
 
         Duration::from_micros(adjusted_delay)
