@@ -23,15 +23,46 @@ fn main() {
 }
 
 fn parse_semver(version: &str) -> (u32, u32, u32) {
-    let parts: Vec<u32> = version
-        .split('.')
-        .filter_map(|part| part.parse().ok())
-        .collect();
+    let version = version.trim();
 
-    match parts.as_slice() {
-        [major, minor, patch, ..] => (*major, *minor, *patch),
-        [major, minor] => (*major, *minor, 0),
-        [major] => (*major, 0, 0),
-        [] => (0, 0, 0),
+    let core_version = version
+        .split('-')
+        .next()
+        .unwrap_or(version)
+        .split('+')
+        .next()
+        .unwrap_or(version);
+
+    let parts: Vec<&str> = core_version.split('.').collect();
+
+    if parts.len() != 3 {
+        panic!(
+            "Invalid Semver format: expected MAJOR.MINOR.PATCH, got '{}' (parts: {})",
+            version,
+            parts.len()
+        );
     }
+
+    let major = parts[0].parse::<u32>().unwrap_or_else(|_| {
+        panic!(
+            "Invalid MAJOR version number: '{}' in version '{}'",
+            parts[0], version
+        )
+    });
+
+    let minor = parts[1].parse::<u32>().unwrap_or_else(|_| {
+        panic!(
+            "Invalid MINOR version number: '{}' in version '{}'",
+            parts[1], version
+        )
+    });
+
+    let patch = parts[2].parse::<u32>().unwrap_or_else(|_| {
+        panic!(
+            "Invalid PATCH version number: '{}' in version '{}'",
+            parts[2], version
+        )
+    });
+
+    (major, minor, patch)
 }

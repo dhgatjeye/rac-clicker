@@ -25,10 +25,18 @@ impl Version {
     pub fn parse(s: &str) -> Result<Self, VersionError> {
         let s = s.trim().trim_start_matches('v').trim_start_matches('V');
 
-        let parts: Vec<&str> = s.split('.').collect();
+        let core_version = s
+            .split('-')
+            .next()
+            .unwrap_or(s)
+            .split('+')
+            .next()
+            .unwrap_or(s);
+
+        let parts: Vec<&str> = core_version.split('.').collect();
         if parts.len() != 3 {
             return Err(VersionError::InvalidFormat(format!(
-                "Expected 3 parts (major.minor.patch), got {}: '{}'",
+                "Expected 3 parts (MAJOR.MINOR.PATCH), got {}: '{}'",
                 parts.len(),
                 s
             )));
