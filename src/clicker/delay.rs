@@ -86,7 +86,7 @@ impl DelayCalculator {
             MouseButton::Right => self.server_timing.right_first_hit_boost(),
         };
 
-        let effective_cps = target_cps.max(hard_limit);
+        let effective_cps = target_cps.min(hard_limit);
         let base_cps_delay = self.calculate_base_cps_delay(effective_cps);
 
         let boosted_delay = if target_cps < hard_limit {
