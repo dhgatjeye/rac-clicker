@@ -1,0 +1,271 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (test without creating release)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-msvc-target-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-msvc-target-release-
+
+      - name: Read version from Cargo.toml
+        id: version
+        shell: pwsh
+        run: |
+          $content = Get-Content Cargo.toml -Raw
+          $version = ($content | Select-String -Pattern '^version\s*=\s*"([^"]+)"' -AllMatches).Matches[0].Groups[1].Value
+          Write-Host "Found version: $version"
+          
+          # Pre-release and build metadata are not supported
+          if ($version -match '^[0-9]+\.[0-9]+\.[0-9]+$') {
+            Write-Host "Valid SemVer 2.0.0 format: $version"
+          } else {
+            Write-Host "Error: Invalid version format in Cargo.toml"
+            Write-Host "Expected: MAJOR.MINOR.PATCH"
+            Write-Host "Got: $version"
+            if ($version -match '-') {
+              Write-Host "Pre-release versions are not supported"
+            }
+            if ($version -match '\+') {
+              Write-Host "Build metadata is not supported"
+            }
+            exit 1
+          }
+          
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          echo "TAG=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Read package name from Cargo.toml
+        id: package
+        shell: pwsh
+        run: |
+          $content = Get-Content Cargo.toml -Raw
+          $name = ($content | Select-String -Pattern '^name\s*=\s*"([^"]+)"' -AllMatches).Matches[0].Groups[1].Value
+          Write-Host "Found package name: $name"
+          echo "NAME=$name" >> $env:GITHUB_OUTPUT
+
+      - name: Check if tag already exists
+        shell: pwsh
+        run: |
+          $TAG = "${{ steps.version.outputs.TAG }}"
+          git fetch --tags
+          $tagExists = git tag -l "$TAG"
+          if ($tagExists) {
+            Write-Host "Error: Tag $TAG already exists! Please update version in Cargo.toml"
+            exit 1
+          }
+          Write-Host "Tag $TAG does not exist, continuing..."
+
+      - name: Build release binary
+        shell: pwsh
+        run: |
+          Write-Host "Building release binary for Windows with MSVC..."
+          cargo build --release --target x86_64-pc-windows-msvc --verbose
+          Write-Host "Build completed successfully"
+
+      - name: Prepare release artifact
+        id: artifact
+        shell: pwsh
+        run: |
+          $NAME = "${{ steps.package.outputs.NAME }}"
+          $VERSION = "${{ steps.version.outputs.VERSION }}"
+          $BUILT_EXE = "target\x86_64-pc-windows-msvc\release\$NAME.exe"
+          $ARTIFACT_NAME = "$NAME-v$VERSION.exe"
+          
+          if (-not (Test-Path $BUILT_EXE)) {
+            Write-Host "Error: Built executable not found at $BUILT_EXE"
+            Get-ChildItem target\x86_64-pc-windows-msvc\release\ -ErrorAction SilentlyContinue
+            exit 1
+          }
+          
+          Write-Host "Copying $BUILT_EXE to $ARTIFACT_NAME"
+          Copy-Item $BUILT_EXE $ARTIFACT_NAME
+          
+          # Show file size
+          $SIZE = (Get-Item $ARTIFACT_NAME).Length / 1MB
+          Write-Host "Artifact size: $([math]::Round($SIZE, 2)) MB"
+          
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $env:GITHUB_OUTPUT
+          echo "ARTIFACT_PATH=$ARTIFACT_NAME" >> $env:GITHUB_OUTPUT
+
+      - name: Get latest tag
+        id: latest_tag
+        shell: pwsh
+        run: |
+          git fetch --tags
+          $LATEST_TAG = git describe --tags --abbrev=0 2>$null
+          if ($LATEST_TAG) {
+            Write-Host "Latest tag: $LATEST_TAG"
+            echo "LATEST_TAG=$LATEST_TAG" >> $env:GITHUB_OUTPUT
+            echo "HAS_PREVIOUS_TAG=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "No previous tags found"
+            echo "HAS_PREVIOUS_TAG=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Generate changelog
+        id: changelog
+        shell: pwsh
+        run: |
+          $TAG = "${{ steps.version.outputs.TAG }}"
+          $REPO_URL = "${{ github.server_url }}/${{ github.repository }}"
+          
+          if ("${{ steps.latest_tag.outputs.HAS_PREVIOUS_TAG }}" -eq "true") {
+            $LATEST_TAG = "${{ steps.latest_tag.outputs.LATEST_TAG }}"
+            $COMPARE_URL = "$REPO_URL/compare/$LATEST_TAG...$TAG"
+          
+            Write-Host "Generating changelog from $LATEST_TAG to HEAD"
+            Write-Host "Latest tag commit:"
+            git log -1 --oneline "$LATEST_TAG"
+            Write-Host ""
+            Write-Host "Current HEAD:"
+            git log -1 --oneline HEAD
+            Write-Host ""
+          
+            $CHANGELOG = "**Full Changelog**: $COMPARE_URL`n`n"
+          
+            # Count total commits for debugging
+            $TOTAL_COMMITS = git rev-list "$LATEST_TAG..HEAD" --count
+            Write-Host "Total commits between $LATEST_TAG and HEAD: $TOTAL_COMMITS"
+            Write-Host ""
+          
+            # Process commits with proper date ordering
+            $commits = git log "$LATEST_TAG..HEAD" --pretty=format:"%H|%cs|%s" --reverse --no-merges
+            foreach ($line in $commits) {
+              if (-not $line) { continue }
+              
+              $parts = $line -split '\|', 3
+              $HASH = $parts[0]
+              $DATE = $parts[1]
+              $MESSAGE = $parts[2]
+              
+              # Skip commits that start with [release]
+              if ($MESSAGE -match '^\[release\]') {
+                Write-Host "Skipping release commit: $MESSAGE"
+                continue
+              }
+          
+              $COMMIT_URL = "$REPO_URL/commit/$HASH"
+              $SHORT_HASH = $HASH.Substring(0, 7)
+              $CHANGELOG += "- [``$SHORT_HASH``]($COMMIT_URL) $MESSAGE *($DATE)*`n"
+            }
+          
+          } else {
+            Write-Host "No previous tag found, listing all commits"
+            $CHANGELOG = "**Initial Release**`n`n"
+          
+            # Count total commits for debugging
+            $TOTAL_COMMITS = git rev-list HEAD --count
+            Write-Host "Total commits in repository: $TOTAL_COMMITS"
+            Write-Host ""
+          
+            # Process all commits with proper date ordering
+            $commits = git log --pretty=format:"%H|%cs|%s" --reverse --no-merges
+            foreach ($line in $commits) {
+              if (-not $line) { continue }
+              
+              $parts = $line -split '\|', 3
+              $HASH = $parts[0]
+              $DATE = $parts[1]
+              $MESSAGE = $parts[2]
+              
+              # Skip commits that start with [release]
+              if ($MESSAGE -match '^\[release\]') {
+                Write-Host "Skipping release commit: $MESSAGE"
+                continue
+              }
+          
+              $COMMIT_URL = "$REPO_URL/commit/$HASH"
+              $SHORT_HASH = $HASH.Substring(0, 7)
+              $CHANGELOG += "- [``$SHORT_HASH``]($COMMIT_URL) $MESSAGE *($DATE)*`n"
+            }
+          }
+          
+          # Save to file for GitHub release
+          $CHANGELOG | Out-File -FilePath CHANGELOG.txt -Encoding UTF8 -NoNewline
+          
+          Write-Host "Changelog generated successfully!"
+          Write-Host "================================"
+          Get-Content CHANGELOG.txt
+          Write-Host "================================"
+
+      - name: Create Release
+        if: ${{ !inputs.dry_run }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: ${{ steps.version.outputs.TAG }}
+          body_path: CHANGELOG.txt
+          files: ${{ steps.artifact.outputs.ARTIFACT_PATH }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        shell: pwsh
+        run: |
+          Write-Host "================================"
+          Write-Host "DRY RUN MODE - No release created"
+          Write-Host "================================"
+          Write-Host ""
+          Write-Host "Tag: ${{ steps.version.outputs.TAG }}"
+          Write-Host "Artifact: ${{ steps.artifact.outputs.ARTIFACT_NAME }}"
+          Write-Host ""
+          Write-Host "Changelog:"
+          Get-Content CHANGELOG.txt
+          Write-Host ""
+          Write-Host "To create the release, run the workflow without dry_run option"
+
+      - name: Upload artifact for inspection
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.ARTIFACT_NAME }}
+          path: ${{ steps.artifact.outputs.ARTIFACT_PATH }}
+          retention-days: 1
