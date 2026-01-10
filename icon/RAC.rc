@@ -29,7 +29,7 @@ BEGIN
 
             VALUE "FileVersion",      STR(CARGO_PKG_VERSION)
             VALUE "InternalName",     "rac-clicker"
-            VALUE "LegalCopyright",   "Copyright \251 2024-2025 LuaCodder"
+            VALUE "LegalCopyright",   "Copyright \251 2024-2026 LuaCodder"
             VALUE "OriginalFilename", "rac-clicker.exe"
             VALUE "ProductName",      "RAC - Robust Auto Clicker"
             VALUE "ProductVersion",   STR(CARGO_PKG_VERSION)
