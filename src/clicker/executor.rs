@@ -1,10 +1,11 @@
 use crate::core::{MouseButton, RacError, RacResult};
 use crate::thread::PrecisionSleep;
 use std::time::Duration;
-use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
+use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::System::SystemServices::{MK_LBUTTON, MK_RBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetClientRect, PostMessageA, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    GetCursorPos, PostMessageA, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP,
 };
 
 pub struct ClickExecutor;
@@ -23,15 +24,20 @@ impl ClickExecutor {
     #[inline]
     fn get_click_position(hwnd: HWND) -> RacResult<LPARAM> {
         unsafe {
-            let mut rect = RECT::default();
+            let mut cursor_pos = POINT::default();
 
-            GetClientRect(hwnd, &mut rect)
-                .map_err(|e| RacError::WindowError(format!("Failed to get client rect: {}", e)))?;
+            GetCursorPos(&mut cursor_pos).map_err(|e| {
+                RacError::WindowError(format!("Failed to get cursor position: {}", e))
+            })?;
 
-            let x = (rect.right - rect.left) / 2;
-            let y = (rect.bottom - rect.top) / 2;
+            let result = ScreenToClient(hwnd, &mut cursor_pos);
+            if !result.as_bool() {
+                return Err(RacError::WindowError(
+                    "Failed to convert to client coordinates".to_string(),
+                ));
+            }
 
-            let lparam = ((y as u32) << 16) | ((x as u32) & 0xFFFF);
+            let lparam = ((cursor_pos.y as u32) << 16) | ((cursor_pos.x as u32) & 0xFFFF);
 
             Ok(LPARAM(lparam as isize))
         }
