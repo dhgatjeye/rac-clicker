@@ -188,7 +188,7 @@ function Invoke-ShellNotify {{
                 public const uint SHCNF_PATHW = 0x0005;
                 public const uint SHCNF_IDLIST = 0x0000;
             }}
-        '@ -ErrorAction SilentlyContinue
+'@ -ErrorAction SilentlyContinue
 
         if ($RefreshDesktop) {{
             [ShellNotify]::SHChangeNotify([ShellNotify]::SHCNE_ASSOCCHANGED, [ShellNotify]::SHCNF_IDLIST, [IntPtr]::Zero, [IntPtr]::Zero)
