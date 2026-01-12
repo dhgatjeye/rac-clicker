@@ -85,9 +85,9 @@ impl UpdateManager {
         println!("✓ Download complete!");
 
         println!("Installing update...");
-        self.installer.install_update(temp_guard.path())?;
-
         temp_guard.keep();
+
+        self.installer.install_update(temp_guard.path())?;
 
         Ok(())
     }

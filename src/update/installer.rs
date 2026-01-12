@@ -188,7 +188,7 @@ function Invoke-ShellNotify {{
                 public const uint SHCNF_PATHW = 0x0005;
                 public const uint SHCNF_IDLIST = 0x0000;
             }}
-'@ -ErrorAction SilentlyContinue
+        '@ -ErrorAction SilentlyContinue
 
         if ($RefreshDesktop) {{
             [ShellNotify]::SHChangeNotify([ShellNotify]::SHCNE_ASSOCCHANGED, [ShellNotify]::SHCNF_IDLIST, [IntPtr]::Zero, [IntPtr]::Zero)
@@ -247,6 +247,17 @@ function Remove-UpdateFiles {{
             catch {{
                 Write-Log "Could not remove: $file" -Level Warning
             }}
+        }}
+    }}
+
+    $tempDir = Split-Path -Parent $Config.NewExePath
+    if ((Test-Path $tempDir) -and ((Get-ChildItem -Path $tempDir -Force | Measure-Object).Count -eq 0)) {{
+        try {{
+            Remove-Item -Path $tempDir -Force -ErrorAction SilentlyContinue
+            Write-Log "Cleaned up temp directory: $tempDir" -Level Info
+        }}
+        catch {{
+            Write-Log "Could not remove temp directory" -Level Warning
         }}
     }}
 }}
