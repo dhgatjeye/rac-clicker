@@ -39,7 +39,7 @@ impl ClickController {
             }
 
             let should_click = match self.toggle_mode {
-                ToggleMode::HotkeyHold => worker.is_active(),
+                ToggleMode::HotkeyHold | ToggleMode::HotkeyToggle => worker.is_active(),
                 ToggleMode::MouseHold => {
                     if !worker.is_active() {
                         last_button_state = false;

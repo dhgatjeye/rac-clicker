@@ -24,7 +24,11 @@ impl ToggleModeConfigScreen {
         println!("   → Press hotkey once to toggle RAC on/off");
         println!("   → Clicking only while holding hotkey");
         println!();
-        println!("3. Back to Main Menu");
+        println!("3. Hotkey Toggle Mode");
+        println!("   → Press hotkey once to start clicking");
+        println!("   → Press hotkey again to stop clicking");
+        println!();
+        println!("4. Back to Main Menu");
         println!();
 
         let input = ScreenUtils::prompt("Select mode: ")?;
@@ -44,7 +48,14 @@ impl ToggleModeConfigScreen {
                 println!("\n✓ Toggle mode set to: Hotkey Hold");
                 println!("✓ Settings saved!");
             }
-            "3" => return Ok(()),
+            "3" => {
+                profile.settings.toggle_mode = ToggleMode::HotkeyToggle;
+                settings_manager.save(&profile.settings)?;
+
+                println!("\n✓ Toggle mode set to: Hotkey Toggle");
+                println!("✓ Settings saved!");
+            }
+            "4" => return Ok(()),
             _ => {
                 println!("\n✗ Invalid option!");
             }

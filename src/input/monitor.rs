@@ -182,6 +182,9 @@ impl InputMonitor {
             ToggleMode::MouseHold => {
                 self.process_mouse_hold_mode(&tm);
             }
+            ToggleMode::HotkeyToggle => {
+                self.process_hotkey_toggle_mode(&tm);
+            }
         }
     }
 
@@ -234,6 +237,30 @@ impl InputMonitor {
             let current = worker.is_active();
             worker.set_active(!current);
         }
+    }
+
+    fn process_hotkey_toggle_mode(&mut self, tm: &ThreadManager) {
+        if self.click_mode.is_left_active()
+            && self.left_hotkey != 0
+            && self
+                .hotkey_manager
+                .borrow_mut()
+                .check_toggle(self.left_hotkey)
+            && let Some(worker) = tm.get_worker(MouseButton::Left) {
+                let current = worker.is_active();
+                worker.set_active(!current);
+            }
+
+        if self.click_mode.is_right_active()
+            && self.right_hotkey != 0
+            && self
+                .hotkey_manager
+                .borrow_mut()
+                .check_toggle(self.right_hotkey)
+            && let Some(worker) = tm.get_worker(MouseButton::Right) {
+                let current = worker.is_active();
+                worker.set_active(!current);
+            }
     }
 
     fn enable_workers(&self, thread_manager: &Arc<Mutex<ThreadManager>>) {

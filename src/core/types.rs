@@ -56,6 +56,7 @@ impl ServerType {
 pub enum ToggleMode {
     MouseHold,
     HotkeyHold,
+    HotkeyToggle,
 }
 
 impl fmt::Display for ToggleMode {
@@ -63,6 +64,7 @@ impl fmt::Display for ToggleMode {
         match self {
             Self::MouseHold => write!(f, "Mouse Hold"),
             Self::HotkeyHold => write!(f, "Hotkey Hold"),
+            Self::HotkeyToggle => write!(f, "Hotkey Toggle"),
         }
     }
 }
