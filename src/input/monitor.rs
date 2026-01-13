@@ -207,26 +207,29 @@ impl InputMonitor {
     fn process_mouse_hold_mode(&self, tm: &ThreadManager) {
         let same_hotkey = self.left_hotkey != 0 && self.left_hotkey == self.right_hotkey;
 
-        if self.click_mode.is_left_active() && self.left_hotkey != 0 {
-            if self
+        if self.click_mode.is_left_active()
+            && self.left_hotkey != 0
+            && self
                 .hotkey_manager
                 .borrow_mut()
                 .check_toggle(self.left_hotkey)
-            {
-                if let Some(worker) = tm.get_worker(MouseButton::Left) {
-                    let current = worker.is_active();
-                    worker.set_active(!current);
-                }
-
-                if same_hotkey
-                    && self.click_mode.is_right_active()
-                    && let Some(worker) = tm.get_worker(MouseButton::Right)
-                {
-                    let current = worker.is_active();
-                    worker.set_active(!current);
-                }
+        {
+            if let Some(worker) = tm.get_worker(MouseButton::Left) {
+                let current = worker.is_active();
+                worker.set_active(!current);
             }
-        } else if self.click_mode.is_right_active()
+
+            if same_hotkey
+                && self.click_mode.is_right_active()
+                && let Some(worker) = tm.get_worker(MouseButton::Right)
+            {
+                let current = worker.is_active();
+                worker.set_active(!current);
+            }
+        }
+
+        if !same_hotkey
+            && self.click_mode.is_right_active()
             && self.right_hotkey != 0
             && self
                 .hotkey_manager
@@ -246,10 +249,11 @@ impl InputMonitor {
                 .hotkey_manager
                 .borrow_mut()
                 .check_toggle(self.left_hotkey)
-            && let Some(worker) = tm.get_worker(MouseButton::Left) {
-                let current = worker.is_active();
-                worker.set_active(!current);
-            }
+            && let Some(worker) = tm.get_worker(MouseButton::Left)
+        {
+            let current = worker.is_active();
+            worker.set_active(!current);
+        }
 
         if self.click_mode.is_right_active()
             && self.right_hotkey != 0
@@ -257,10 +261,11 @@ impl InputMonitor {
                 .hotkey_manager
                 .borrow_mut()
                 .check_toggle(self.right_hotkey)
-            && let Some(worker) = tm.get_worker(MouseButton::Right) {
-                let current = worker.is_active();
-                worker.set_active(!current);
-            }
+            && let Some(worker) = tm.get_worker(MouseButton::Right)
+        {
+            let current = worker.is_active();
+            worker.set_active(!current);
+        }
     }
 
     fn enable_workers(&self, thread_manager: &Arc<Mutex<ThreadManager>>) {
