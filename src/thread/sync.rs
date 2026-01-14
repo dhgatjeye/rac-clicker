@@ -48,6 +48,11 @@ impl SyncSignal {
     }
 
     pub fn set_state(&self, new_state: WorkerState) {
+        let _guard = self.mutex.lock().unwrap_or_else(|poisoned| {
+            #[cfg(debug_assertions)]
+            eprintln!("[set_state] Mutex lock poisoned, recovering...");
+            poisoned.into_inner()
+        });
         self.state.store(new_state as u8, Ordering::Release);
         self.condvar.notify_all();
     }
@@ -73,10 +78,11 @@ impl SyncSignal {
     }
 
     pub fn wait_for_running(&self, timeout: Duration) -> bool {
-        let guard = match self.mutex.lock() {
-            Ok(g) => g,
-            Err(_) => return false,
-        };
+        let guard = self.mutex.lock().unwrap_or_else(|poisoned| {
+            #[cfg(debug_assertions)]
+            eprintln!("[wait_for_running] Mutex lock poisoned, recovering...");
+            poisoned.into_inner()
+        });
 
         if self.is_running() {
             return true;

@@ -156,10 +156,11 @@ impl InputMonitor {
         {
             self.rac_enabled = !self.rac_enabled;
 
-            let tm = match thread_manager.lock() {
-                Ok(tm) => tm,
-                Err(_) => return,
-            };
+            let tm = thread_manager.lock().unwrap_or_else(|poisoned| {
+                #[cfg(debug_assertions)]
+                eprintln!("[process_toggle_key] ThreadManager lock poisoned, recovering...");
+                poisoned.into_inner()
+            });
 
             if self.rac_enabled {
                 self.start_workers(&tm);
@@ -170,10 +171,11 @@ impl InputMonitor {
     }
 
     fn process_action_keys(&mut self, thread_manager: &Arc<Mutex<ThreadManager>>) {
-        let tm = match thread_manager.lock() {
-            Ok(tm) => tm,
-            Err(_) => return,
-        };
+        let tm = thread_manager.lock().unwrap_or_else(|poisoned| {
+            #[cfg(debug_assertions)]
+            eprintln!("[process_action_keys] ThreadManager lock poisoned, recovering...");
+            poisoned.into_inner()
+        });
 
         match self.toggle_mode {
             ToggleMode::HotkeyHold => {
@@ -187,7 +189,6 @@ impl InputMonitor {
             }
         }
     }
-
     fn process_hotkey_hold_mode(&self, tm: &ThreadManager) {
         if self.click_mode.is_left_active()
             && self.left_hotkey != 0

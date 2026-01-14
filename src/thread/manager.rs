@@ -108,6 +108,9 @@ impl ThreadManager {
 
 impl Drop for ThreadManager {
     fn drop(&mut self) {
-        let _ = self.stop_all();
+        if let Err(_e) = self.stop_all() {
+            #[cfg(debug_assertions)]
+            eprintln!("[DROP] ThreadManager cleanup failed: {}", _e);
+        }
     }
 }
