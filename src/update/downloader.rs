@@ -1,41 +1,23 @@
 use crate::core::{RacError, RacResult};
+use crate::update::http::{
+    configure_request, connect, handle_status_code, open_request, open_session, parse_url,
+    query_content_length, query_status_code, send_request,
+};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use windows::Win32::Networking::WinHttp::{
+    WINHTTP_OPTION_MAX_HTTP_AUTOMATIC_REDIRECTS, WinHttpReadData, WinHttpSetOption,
+    WinHttpSetTimeouts,
+};
 
 const MAX_DOWNLOAD_RETRIES: u8 = 3;
 const INITIAL_RETRY_DELAY_MS: u64 = 2000;
 
 pub type ProgressCallback = Arc<dyn Fn(u64, u64) + Send + Sync>;
-
-struct WinHttpHandle(*mut std::ffi::c_void);
-
-impl Drop for WinHttpHandle {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe {
-                let _ = windows::Win32::Networking::WinHttp::WinHttpCloseHandle(self.0);
-            }
-        }
-    }
-}
-
-impl WinHttpHandle {
-    fn new(handle: *mut std::ffi::c_void) -> Option<Self> {
-        if handle.is_null() {
-            None
-        } else {
-            Some(Self(handle))
-        }
-    }
-
-    fn as_ptr(&self) -> *mut std::ffi::c_void {
-        self.0
-    }
-}
 
 #[derive(Clone)]
 pub struct Downloader;
@@ -97,76 +79,19 @@ impl Downloader {
         dest_path: &Path,
         progress_callback: Option<ProgressCallback>,
     ) -> RacResult<PathBuf> {
-        use windows::Win32::Networking::WinHttp::*;
-        use windows::core::{HSTRING, PCWSTR};
+        let user_agent = format!("RAC-Downloader/{}", env!("CARGO_PKG_VERSION"));
+
+        let url_parts = parse_url(url, 2048)?;
+
+        let session = open_session(&user_agent)?;
+
+        let connection = connect(&session, &url_parts.host, url_parts.port)?;
+
+        let request = open_request(&connection, &url_parts.path)?;
 
         unsafe {
-            let user_agent = format!("RAC-Downloader/{}", env!("CARGO_PKG_VERSION"));
-            let session = WinHttpHandle::new(WinHttpOpen(
-                &HSTRING::from(user_agent),
-                WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                PCWSTR::null(),
-                PCWSTR::null(),
-                0,
-            ))
-            .ok_or_else(|| {
-                let error_code = windows::Win32::Foundation::GetLastError().0;
-                RacError::UpdateError(format!(
-                    "Failed to initialize WinHTTP (error code: 0x{:X})",
-                    error_code
-                ))
-            })?;
-
-            let protocols: u32 =
-                WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_3;
-            let _ = WinHttpSetOption(
-                Some(session.as_ptr() as *const _),
-                WINHTTP_OPTION_SECURE_PROTOCOLS,
-                Some(&protocols.to_ne_bytes()),
-            );
-
-            let (host, path, port) = parse_url(url)?;
-
-            let connect = WinHttpHandle::new(WinHttpConnect(
-                session.as_ptr(),
-                &HSTRING::from(host.as_str()),
-                port,
-                0,
-            ))
-            .ok_or_else(|| {
-                let error_code = windows::Win32::Foundation::GetLastError().0;
-                RacError::UpdateError(format!(
-                    "Failed to connect to {} (error code: 0x{:X})",
-                    host, error_code
-                ))
-            })?;
-
-            let request = WinHttpHandle::new(WinHttpOpenRequest(
-                connect.as_ptr(),
-                &HSTRING::from("GET"),
-                &HSTRING::from(path.as_str()),
-                PCWSTR::null(),
-                PCWSTR::null(),
-                std::ptr::null(),
-                WINHTTP_FLAG_SECURE,
-            ))
-            .ok_or_else(|| {
-                let error_code = windows::Win32::Foundation::GetLastError().0;
-                RacError::UpdateError(format!(
-                    "Failed to open request (error code: 0x{:X})",
-                    error_code
-                ))
-            })?;
-
             WinHttpSetTimeouts(request.as_ptr(), 30000, 60000, 60000, 60000)
                 .map_err(|e| RacError::UpdateError(format!("Failed to set timeout: {:?}", e)))?;
-
-            let redirect_policy: u32 = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
-            let _ = WinHttpSetOption(
-                Some(request.as_ptr() as *const _),
-                WINHTTP_OPTION_REDIRECT_POLICY,
-                Some(&redirect_policy.to_ne_bytes()),
-            );
 
             let max_redirects: u32 = 10;
             let _ = WinHttpSetOption(
@@ -174,162 +99,29 @@ impl Downloader {
                 WINHTTP_OPTION_MAX_HTTP_AUTOMATIC_REDIRECTS,
                 Some(&max_redirects.to_ne_bytes()),
             );
-
-            let decompression: u32 =
-                WINHTTP_DECOMPRESSION_FLAG_GZIP | WINHTTP_DECOMPRESSION_FLAG_DEFLATE;
-            let _ = WinHttpSetOption(
-                Some(request.as_ptr() as *const _),
-                WINHTTP_OPTION_DECOMPRESSION,
-                Some(&decompression.to_ne_bytes()),
-            );
-
-            let headers = HSTRING::from(format!(
-                "User-Agent: RAC-Downloader/{}\r\n",
-                env!("CARGO_PKG_VERSION")
-            ));
-            let _ = WinHttpAddRequestHeaders(request.as_ptr(), &headers, WINHTTP_ADDREQ_FLAG_ADD);
-
-            WinHttpSendRequest(request.as_ptr(), None, None, 0, 0, 0).map_err(|e| {
-                let error_code = windows::Win32::Foundation::GetLastError().0;
-                RacError::UpdateError(format!(
-                    "Failed to send request (error code: 0x{:X}, details: {:?})",
-                    error_code, e
-                ))
-            })?;
-
-            WinHttpReceiveResponse(request.as_ptr(), std::ptr::null_mut()).map_err(|e| {
-                let error_code = windows::Win32::Foundation::GetLastError().0;
-                RacError::UpdateError(format!(
-                    "Failed to receive response (error code: 0x{:X}, details: {:?})",
-                    error_code, e
-                ))
-            })?;
-
-            let status_code = query_status_code(request.as_ptr())?;
-
-            match status_code {
-                200 => {}
-                301 | 302 | 303 | 307 | 308 => {
-                    return Err(RacError::UpdateError(format!(
-                        "Redirect not handled properly ({}). This shouldn't happen with auto-redirect enabled.",
-                        status_code
-                    )));
-                }
-                403 => {
-                    return Err(RacError::UpdateError(
-                        "Download forbidden (403). File may not be publicly accessible."
-                            .to_string(),
-                    ));
-                }
-                404 => {
-                    return Err(RacError::UpdateError(
-                        "Download file not found (404). URL may be invalid.".to_string(),
-                    ));
-                }
-                429 => {
-                    return Err(RacError::UpdateError(
-                        "Rate limited (429). Too many download requests. Try again later."
-                            .to_string(),
-                    ));
-                }
-                500..=599 => {
-                    return Err(RacError::UpdateError(format!(
-                        "Server error ({}). Download service temporarily unavailable.",
-                        status_code
-                    )));
-                }
-                _ => {
-                    return Err(RacError::UpdateError(format!(
-                        "HTTP error: {}",
-                        status_code
-                    )));
-                }
-            }
-
-            let content_length = query_content_length(request.as_ptr());
-
-            let result = download_to_file(
-                request.as_ptr(),
-                dest_path,
-                content_length,
-                progress_callback,
-            );
-
-            if result.is_err() {
-                let _ = std::fs::remove_file(dest_path);
-            }
-
-            result
         }
-    }
-}
 
-fn parse_url(url: &str) -> RacResult<(String, String, u16)> {
-    use windows::Win32::Networking::WinHttp::*;
+        configure_request(&request, &user_agent)?;
 
-    unsafe {
-        let url_wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
-        let mut components: URL_COMPONENTS = std::mem::zeroed();
-        components.dwStructSize = size_of::<URL_COMPONENTS>() as u32;
+        send_request(&request)?;
 
-        let mut host_buffer = vec![0u16; 256];
-        let mut path_buffer = vec![0u16; 2048];
+        let status_code = query_status_code(&request)?;
+        handle_status_code(status_code, "Download")?;
 
-        components.lpszHostName = windows::core::PWSTR(host_buffer.as_mut_ptr());
-        components.dwHostNameLength = host_buffer.len() as u32;
-        components.lpszUrlPath = windows::core::PWSTR(path_buffer.as_mut_ptr());
-        components.dwUrlPathLength = path_buffer.len() as u32;
+        let content_length = query_content_length(&request);
 
-        WinHttpCrackUrl(&url_wide, 0, &mut components)
-            .map_err(|_| RacError::UpdateError("Failed to parse URL".into()))?;
-
-        let host = String::from_utf16_lossy(&host_buffer[..components.dwHostNameLength as usize]);
-        let path = String::from_utf16_lossy(&path_buffer[..components.dwUrlPathLength as usize]);
-
-        Ok((host, path, components.nPort))
-    }
-}
-
-fn query_status_code(request: *mut std::ffi::c_void) -> RacResult<u32> {
-    use windows::Win32::Networking::WinHttp::*;
-    use windows::core::PCWSTR;
-
-    unsafe {
-        let mut status_code: u32 = 0;
-        let mut size = size_of::<u32>() as u32;
-
-        WinHttpQueryHeaders(
-            request,
-            WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-            PCWSTR::null(),
-            Some(&mut status_code as *mut u32 as *mut _),
-            &mut size,
-            std::ptr::null_mut(),
-        )
-        .map_err(|_| RacError::UpdateError("Failed to query status".into()))?;
-
-        Ok(status_code)
-    }
-}
-
-fn query_content_length(request: *mut std::ffi::c_void) -> u64 {
-    use windows::Win32::Networking::WinHttp::*;
-    use windows::core::PCWSTR;
-
-    unsafe {
-        let mut content_length: u64 = 0;
-        let mut size = size_of::<u64>() as u32;
-
-        let _ = WinHttpQueryHeaders(
-            request,
-            WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER,
-            PCWSTR::null(),
-            Some(&mut content_length as *mut u64 as *mut _),
-            &mut size,
-            std::ptr::null_mut(),
+        let result = download_to_file(
+            request.as_ptr(),
+            dest_path,
+            content_length,
+            progress_callback,
         );
 
-        content_length
+        if result.is_err() {
+            let _ = std::fs::remove_file(dest_path);
+        }
+
+        result
     }
 }
 
@@ -339,8 +131,6 @@ fn download_to_file(
     content_length: u64,
     progress_callback: Option<ProgressCallback>,
 ) -> RacResult<PathBuf> {
-    use windows::Win32::Networking::WinHttp::WinHttpReadData;
-
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)

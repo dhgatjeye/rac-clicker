@@ -1,5 +1,6 @@
 pub mod checker;
 pub mod downloader;
+pub mod http;
 pub mod installer;
 pub mod version;
 
