@@ -51,18 +51,20 @@ impl WindowFinder {
     }
 
     pub fn find_window(&self, window_handle: &WindowHandle) -> RacResult<bool> {
-        let cached = self.cached_pid.load(Ordering::Relaxed);
+        let cached = self.cached_pid.load(Ordering::Acquire);
 
         if cached != 0 {
-            if let Some(hwnd) = self.find_window_for_pid(cached)? {
+            if let Some(hwnd) = self.find_window_for_pid(cached)?
+                && self.validate_window_process(hwnd, cached)?
+            {
                 window_handle.set(hwnd);
                 return Ok(true);
             }
-            self.cached_pid.store(0, Ordering::Relaxed);
+            self.cached_pid.store(0, Ordering::Release);
         }
 
         if let Some(pid) = self.find_process_by_name()? {
-            self.cached_pid.store(pid, Ordering::Relaxed);
+            self.cached_pid.store(pid, Ordering::Release);
 
             if let Some(hwnd) = self.find_window_for_pid(pid)? {
                 window_handle.set(hwnd);
@@ -71,6 +73,14 @@ impl WindowFinder {
         }
 
         Ok(false)
+    }
+
+    fn validate_window_process(&self, hwnd: HWND, expected_pid: u32) -> RacResult<bool> {
+        unsafe {
+            let mut process_id: u32 = 0;
+            GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+            Ok(process_id == expected_pid && IsWindowVisible(hwnd).as_bool())
+        }
     }
 
     fn find_process_by_name(&self) -> RacResult<Option<u32>> {
