@@ -13,12 +13,12 @@ fn main() {
         format!("CARGO_PKG_VERSION_PATCH={patch}"),
     ];
 
-    embed_resource::compile("icon/RAC.rc", &compile_args)
+    embed_resource::compile("resources/RAC.rc", &compile_args)
         .manifest_required()
         .expect("Failed to compile Windows resource file");
 
-    println!("cargo:rerun-if-changed=icon/RAC.rc");
-    println!("cargo:rerun-if-changed=icon/Manifest.xml");
+    println!("cargo:rerun-if-changed=resources/RAC.rc");
+    println!("cargo:rerun-if-changed=resources/Manifest.xml");
     println!("cargo:rerun-if-changed=icon/RAC.ico");
 }
 
