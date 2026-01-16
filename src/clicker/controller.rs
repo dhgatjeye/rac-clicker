@@ -33,61 +33,98 @@ impl ClickController {
                 break;
             }
 
-            if !worker.signal().wait_for_running(Duration::from_millis(100)) {
-                std::thread::yield_now();
+            if !self.wait_for_running_state(&worker) {
                 continue;
             }
 
-            let should_click = match self.toggle_mode {
-                ToggleMode::HotkeyHold | ToggleMode::HotkeyToggle => worker.is_active(),
-                ToggleMode::MouseHold => {
-                    if !worker.is_active() {
-                        last_button_state = false;
-                        false
-                    } else {
-                        let is_pressed = self.is_button_pressed(worker.config().button);
-
-                        if last_button_state && !is_pressed {
-                            delay_calc.reset_on_release();
-                            last_button_state = false;
-                            std::thread::yield_now();
-                            continue;
-                        }
-
-                        last_button_state = is_pressed;
-                        is_pressed
-                    }
-                }
-            };
+            let should_click =
+                self.should_execute_click(&worker, &mut last_button_state, delay_calc);
 
             if !should_click {
                 std::thread::yield_now();
                 continue;
             }
 
-            let hwnd = hwnd_provider();
-            if hwnd.is_invalid() {
-                PrecisionSleep::sleep(Duration::from_millis(20));
+            if !self.execute_click_cycle(&hwnd_provider, &worker, delay_calc) {
                 continue;
             }
+        }
+    }
 
-            let delay = delay_calc.next_delay();
+    fn wait_for_running_state(&self, worker: &ClickWorker) -> bool {
+        if !worker.signal().wait_for_running(Duration::from_millis(100)) {
+            std::thread::yield_now();
+            return false;
+        }
+        true
+    }
 
-            PrecisionSleep::sleep(delay);
+    fn should_execute_click(
+        &self,
+        worker: &ClickWorker,
+        last_button_state: &mut bool,
+        delay_calc: &mut DelayCalculator,
+    ) -> bool {
+        match self.toggle_mode {
+            ToggleMode::HotkeyHold | ToggleMode::HotkeyToggle => worker.is_active(),
+            ToggleMode::MouseHold => {
+                self.handle_mouse_hold_mode(worker, last_button_state, delay_calc)
+            }
+        }
+    }
 
-            let hold_duration = delay_calc.hold_duration();
+    fn handle_mouse_hold_mode(
+        &self,
+        worker: &ClickWorker,
+        last_button_state: &mut bool,
+        delay_calc: &mut DelayCalculator,
+    ) -> bool {
+        if !worker.is_active() {
+            *last_button_state = false;
+            return false;
+        }
 
-            match self
-                .executor
-                .execute_click(hwnd, worker.config().button, hold_duration)
-            {
-                Ok(_) => {
-                    delay_calc.record_click();
-                }
-                Err(_) => {
-                    PrecisionSleep::sleep(Duration::from_millis(20));
-                    continue;
-                }
+        let is_pressed = self.is_button_pressed(worker.config().button);
+
+        if *last_button_state && !is_pressed {
+            delay_calc.reset_on_release();
+            *last_button_state = false;
+            std::thread::yield_now();
+            return false;
+        }
+
+        *last_button_state = is_pressed;
+        is_pressed
+    }
+
+    fn execute_click_cycle(
+        &self,
+        hwnd_provider: &impl Fn() -> HWND,
+        worker: &ClickWorker,
+        delay_calc: &mut DelayCalculator,
+    ) -> bool {
+        let hwnd = hwnd_provider();
+        if hwnd.is_invalid() {
+            PrecisionSleep::sleep(Duration::from_millis(20));
+            return false;
+        }
+
+        let delay = delay_calc.next_delay();
+        PrecisionSleep::sleep(delay);
+
+        let hold_duration = delay_calc.hold_duration();
+
+        match self
+            .executor
+            .execute_click(hwnd, worker.config().button, hold_duration)
+        {
+            Ok(_) => {
+                delay_calc.record_click();
+                true
+            }
+            Err(_) => {
+                PrecisionSleep::sleep(Duration::from_millis(20));
+                false
             }
         }
     }
