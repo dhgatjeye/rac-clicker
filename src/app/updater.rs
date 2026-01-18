@@ -1,3 +1,4 @@
+use crate::app::ui::{display_progress, format_size};
 use crate::{RacError, RacResult, UpdateManager, Version};
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -112,10 +113,7 @@ pub fn check_and_update() -> RacResult<()> {
             println!("\nCurrent Version:  v{}", Version::current());
             println!("New Version:      v{}", release.version);
             println!("Release Name:     {}", release.release_name);
-            println!(
-                "File Size:        {:.2} MB",
-                release.asset_size as f64 / 1024.0 / 1024.0
-            );
+            println!("File Size:        {}", format_size(release.asset_size));
 
             if !release.release_notes.is_empty() {
                 println!("\nRelease Notes:");
@@ -221,16 +219,7 @@ fn download_and_install_update(
     loop {
         match progress_rx.recv_timeout(Duration::from_millis(100)) {
             Ok(DownloadProgress::Progress { current, total }) => {
-                if total > 0 {
-                    let percent = (current as f64 / total as f64) * 100.0;
-                    let mb_current = current as f64 / 1024.0 / 1024.0;
-                    let mb_total = total as f64 / 1024.0 / 1024.0;
-                    print!(
-                        "\rDownloading: {:.1}% ({:.2}/{:.2} MB)   ",
-                        percent, mb_current, mb_total
-                    );
-                    io::stdout().flush().ok();
-                }
+                display_progress(current, total);
             }
             Ok(DownloadProgress::Complete) => {
                 break;

@@ -76,17 +76,51 @@ pub fn prompt_yes_no(default_yes: bool) -> bool {
     }
 }
 
-pub fn create_download_progress_callback() -> impl Fn(u64, u64) {
-    move |current: u64, total: u64| {
-        if total > 0 {
-            let percent = (current as f64 / total as f64) * 100.0;
-            let mb_current = current as f64 / 1024.0 / 1024.0;
-            let mb_total = total as f64 / 1024.0 / 1024.0;
-            print!(
-                "\rDownloading: {:.1}% ({:.2}/{:.2} MB)   ",
-                percent, mb_current, mb_total
-            );
-            io::stdout().flush().ok();
+pub fn display_progress(current: u64, total: u64) {
+    if total > 0 && current <= total {
+        let percent = ((current as f64 / total as f64) * 100.0).min(100.0);
+        let mb_current = (current as f64 / 1024.0 / 1024.0).max(0.0);
+        let mb_total = (total as f64 / 1024.0 / 1024.0).max(0.0);
+
+        print!(
+            "\rDownloading: {:.1}% ({:.2}/{:.2} MB)   ",
+            percent, mb_current, mb_total
+        );
+        io::stdout().flush().ok();
+    } else if total == 0 {
+        print!("\rDownloading: calculating...   ");
+        io::stdout().flush().ok();
+    }
+}
+
+pub fn format_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    const TB: f64 = GB * 1024.0;
+
+    if bytes == 0 {
+        return "0 B".to_string();
+    }
+
+    let size = bytes as f64;
+
+    if !size.is_finite() {
+        return format!("{} B", bytes);
+    }
+
+    match size {
+        s if s >= TB => {
+            let result = s / TB;
+            if result.is_finite() {
+                format!("{:.2} TB", result)
+            } else {
+                format!("{} B", bytes)
+            }
         }
+        s if s >= GB => format!("{:.1} GB", s / GB),
+        s if s >= MB => format!("{:.1} MB", s / MB),
+        s if s >= KB => format!("{:.0} KB", s / KB),
+        _ => format!("{} B", bytes),
     }
 }
