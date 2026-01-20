@@ -6,6 +6,11 @@ use crate::input::HotkeyManager;
 pub struct HotkeyConfigScreen;
 
 impl HotkeyConfigScreen {
+    const EXCLUDED_KEYS: &'static [i32] = &[
+        0x20, 0x5B, 0x5C, 0x5D, 0x91, 0x14, 0x13, 0x2C, 0x26, 0x28, 0x25, 0x27, 0x09, 0x0D, 0x1B,
+        0x08, 0x2E, 0x23, 0x24, 0x21, 0x22,
+    ];
+
     pub fn show(
         profile: &mut ConfigProfile,
         settings_manager: &mut SettingsManager,
@@ -86,6 +91,14 @@ impl HotkeyConfigScreen {
         }
     }
 
+    fn is_key_allowed(vk_code: i32) -> bool {
+        if (0x70..=0x7B).contains(&vk_code) {
+            return false;
+        }
+
+        !Self::EXCLUDED_KEYS.contains(&vk_code)
+    }
+
     fn configure_toggle_hotkey(
         profile: &mut ConfigProfile,
         settings_manager: &mut SettingsManager,
@@ -114,6 +127,9 @@ impl HotkeyConfigScreen {
             settings_manager.save(&profile.settings)?;
             println!("\n✓ Toggle hotkey disabled (using Left/Right hotkeys only)");
             println!("✓ Settings saved!");
+        } else if !Self::is_key_allowed(vk_code) {
+            println!("\n✗ This key cannot be used as a hotkey!");
+            println!("  Excluded keys: Space, F1-F12, Windows keys, navigation keys, etc.");
         } else {
             profile.settings.toggle_hotkey = vk_code;
             settings_manager.save(&profile.settings)?;
@@ -131,18 +147,23 @@ impl HotkeyConfigScreen {
         settings_manager: &mut SettingsManager,
     ) -> RacResult<()> {
         println!("\nPress the key you want to use for left click...");
-        println!("(Press ESC to cancel, or 0 to disable)");
+        println!("(Press ESC to cancel)");
 
         if let Some(vk_code) = Self::wait_for_key_press()?
             && vk_code != 0x1B
         {
-            profile.settings.left_hotkey = vk_code;
-            settings_manager.save(&profile.settings)?;
-            println!(
-                "\n✓ Left click hotkey set to: {}",
-                HotkeyManager::key_name(vk_code)
-            );
-            println!("✓ Settings saved!");
+            if !Self::is_key_allowed(vk_code) {
+                println!("\n✗ This key cannot be used as a hotkey!");
+                println!("  Excluded keys: Space, F1-F12, Windows keys, navigation keys, etc.");
+            } else {
+                profile.settings.left_hotkey = vk_code;
+                settings_manager.save(&profile.settings)?;
+                println!(
+                    "\n✓ Left click hotkey set to: {}",
+                    HotkeyManager::key_name(vk_code)
+                );
+                println!("✓ Settings saved!");
+            }
         }
         Ok(())
     }
@@ -152,18 +173,23 @@ impl HotkeyConfigScreen {
         settings_manager: &mut SettingsManager,
     ) -> RacResult<()> {
         println!("\nPress the key you want to use for right click...");
-        println!("(Press ESC to cancel, or 0 to disable)");
+        println!("(Press ESC to cancel)");
 
         if let Some(vk_code) = Self::wait_for_key_press()?
             && vk_code != 0x1B
         {
-            profile.settings.right_hotkey = vk_code;
-            settings_manager.save(&profile.settings)?;
-            println!(
-                "\n✓ Right click hotkey set to: {}",
-                HotkeyManager::key_name(vk_code)
-            );
-            println!("✓ Settings saved!");
+            if !Self::is_key_allowed(vk_code) {
+                println!("\n✗ This key cannot be used as a hotkey!");
+                println!("  Excluded keys: Space, F1-F12, Windows keys, navigation keys, etc.");
+            } else {
+                profile.settings.right_hotkey = vk_code;
+                settings_manager.save(&profile.settings)?;
+                println!(
+                    "\n✓ Right click hotkey set to: {}",
+                    HotkeyManager::key_name(vk_code)
+                );
+                println!("✓ Settings saved!");
+            }
         }
         Ok(())
     }
