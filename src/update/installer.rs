@@ -42,6 +42,20 @@ impl UpdateInstaller {
             return Err(RacError::UpdateError("Update file not found".to_string()));
         }
 
+        println!("Checking for file locks...");
+        match crate::update::restart_manager::RestartManager::release_file_locks(&current_exe) {
+            Ok(true) => {
+                println!("File is ready for update");
+            }
+            Ok(false) => {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
+            Err(e) => {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                return Err(e);
+            }
+        }
+
         let backup_path = self.create_backup(&current_exe)?;
 
         self.create_updater_script(&current_exe, new_exe_path, &backup_path)?;
