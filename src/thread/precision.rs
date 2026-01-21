@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 
 const TAU_NS: f64 = 15_000_000.0;
 
-const THRESHOLD_MICRO: u64 = 100;
-const THRESHOLD_BALANCED: u64 = 500;
+const THRESHOLD_MICRO: u64 = 80;
+const THRESHOLD_BALANCED: u64 = 400;
 
 const MIN_SPINS: u32 = 4;
 const MAX_SPINS: u32 = 64;

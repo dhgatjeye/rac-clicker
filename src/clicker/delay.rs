@@ -69,7 +69,7 @@ impl DelayCalculator {
         let phi = perturbation(PHI_BASE, session_fingerprint, 0);
         let phi_inv = perturbation(PHI_INV_BASE, session_fingerprint, 16);
         let planck_scale = perturbation(PLANCK_BASE, session_fingerprint, 32);
-        let hit_priority_window = perturbation(0.6, session_fingerprint, 48);
+        let hit_priority_window = perturbation(0.45, session_fingerprint, 48);
 
         Ok(Self {
             pattern,
@@ -235,7 +235,7 @@ impl DelayCalculator {
         let projected_fraction = projected_position as f64 / SERVER_TICK_US as f64;
 
         if projected_fraction <= self.hit_priority_window {
-            let early_bonus = (self.hit_streak as u64).min(5) * 500;
+            let early_bonus = (self.hit_streak as u64).min(8) * 800;
             base_delay.saturating_sub(early_bonus)
         } else {
             let tick_entry_offset = self
