@@ -137,6 +137,13 @@ pub fn open_session(user_agent: &str) -> RacResult<WinHttpHandle> {
             Some(&protocols.to_ne_bytes()),
         );
 
+        let http2: u32 = WINHTTP_PROTOCOL_FLAG_HTTP2;
+        let _ = WinHttpSetOption(
+            Some(session.as_ptr() as *const _),
+            WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL,
+            Some(&http2.to_ne_bytes()),
+        );
+
         Ok(session)
     }
 }
@@ -182,13 +189,6 @@ pub fn open_request(connect: &WinHttpHandle, path: &str) -> RacResult<WinHttpHan
 
 pub fn configure_request(request: &WinHttpHandle, user_agent: &str) -> RacResult<()> {
     unsafe {
-        let http2: u32 = WINHTTP_PROTOCOL_FLAG_HTTP2;
-        let _ = WinHttpSetOption(
-            Some(request.as_ptr() as *const _),
-            WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL,
-            Some(&http2.to_ne_bytes()),
-        );
-
         let redirect_policy: u32 = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
         let _ = WinHttpSetOption(
             Some(request.as_ptr() as *const _),
