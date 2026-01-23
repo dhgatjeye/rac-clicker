@@ -46,7 +46,7 @@ impl DelayCalculator {
         server_type: ServerType,
     ) -> crate::core::RacResult<Self> {
         let server_timing = get_server_timing(server_type)?;
-        let mut rng = Xoshiro256::from_entropy();
+        let rng = Xoshiro256::from_entropy();
 
         let mut psi_real = [0.0f64; 8];
         let mut psi_imag = [0.0f64; 8];
@@ -57,19 +57,14 @@ impl DelayCalculator {
             psi_imag[i] = norm * theta.sin();
         }
 
-        let entropy_pool = rng.random_range_u64(0, u64::MAX);
+        let entropy_pool = 0u64;
 
-        let session_fingerprint = rng.random_range_u64(0, u64::MAX);
+        let session_fingerprint = 0u64;
 
-        let perturbation = |base: f64, fp: u64, shift: u32| -> f64 {
-            let noise = ((fp >> shift) & 0xFFFF) as f64 / 65535.0;
-            base * (0.98 + noise * 0.04)
-        };
-
-        let phi = perturbation(PHI_BASE, session_fingerprint, 0);
-        let phi_inv = perturbation(PHI_INV_BASE, session_fingerprint, 16);
-        let planck_scale = perturbation(PLANCK_BASE, session_fingerprint, 32);
-        let hit_priority_window = perturbation(0.45, session_fingerprint, 48);
+        let phi = Self::perturbation(PHI_BASE, session_fingerprint, 0);
+        let phi_inv = Self::perturbation(PHI_INV_BASE, session_fingerprint, 16);
+        let planck_scale = Self::perturbation(PLANCK_BASE, session_fingerprint, 32);
+        let hit_priority_window = Self::perturbation(0.45, session_fingerprint, 48);
 
         Ok(Self {
             pattern,
@@ -218,6 +213,12 @@ impl DelayCalculator {
             (target_delay as f64 * 0.02 * (fib_phase * std::f64::consts::TAU).sin()) as i64;
 
         modulated.saturating_add_signed(golden_variance)
+    }
+
+    #[inline(always)]
+    fn perturbation(base: f64, fp: u64, shift: u32) -> f64 {
+        let noise = ((fp >> shift) & 0xFFFF) as f64 / 65535.0;
+        base * (0.98 + noise * 0.04)
     }
 
     #[inline(always)]
@@ -487,15 +488,12 @@ impl DelayCalculator {
         self.coherence = 1.0;
         self.phase_acc = 0.0;
 
-        self.session_fingerprint = self.rng.random_range_u64(0, u64::MAX);
-        let perturbation = |base: f64, fp: u64, shift: u32| -> f64 {
-            let noise = ((fp >> shift) & 0xFFFF) as f64 / 65535.0;
-            base * (0.98 + noise * 0.04)
-        };
-        self.phi = perturbation(PHI_BASE, self.session_fingerprint, 0);
-        self.phi_inv = perturbation(PHI_INV_BASE, self.session_fingerprint, 16);
-        self.planck_scale = perturbation(PLANCK_BASE, self.session_fingerprint, 32);
-        self.hit_priority_window = perturbation(0.6, self.session_fingerprint, 48);
+        self.session_fingerprint = 0u64;
+
+        self.phi = Self::perturbation(PHI_BASE, self.session_fingerprint, 0);
+        self.phi_inv = Self::perturbation(PHI_INV_BASE, self.session_fingerprint, 16);
+        self.planck_scale = Self::perturbation(PLANCK_BASE, self.session_fingerprint, 32);
+        self.hit_priority_window = Self::perturbation(0.6, self.session_fingerprint, 48);
 
         let penalty_ms = self.server_timing.release_penalty_ms();
         if penalty_ms > 0 {
