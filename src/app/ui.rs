@@ -1,15 +1,18 @@
+use crate::menu::{Align, DoubleMenu};
 use std::io::{self, Write};
 
 pub fn print_banner(title: &str) {
-    println!("\n╔════════════════════════════════════════════╗");
-    println!("║  {:^40}  ║", title);
-    println!("╚════════════════════════════════════════════╝\n");
+    println!();
+    if let Ok(menu) = DoubleMenu::new(46).header(title, Align::Center) {
+        let _ = menu.finish(&mut io::stdout());
+    }
+    println!();
 }
 
 pub fn print_error_banner() {
-    println!("╔════════════════════════════════════════════╗");
-    println!("║              ERROR                         ║");
-    println!("╚════════════════════════════════════════════╝");
+    if let Ok(menu) = DoubleMenu::new(46).header("ERROR", Align::Center) {
+        let _ = menu.finish(&mut io::stdout());
+    }
 }
 
 pub fn wait_for_enter(message: &str) {

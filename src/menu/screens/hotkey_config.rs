@@ -27,33 +27,34 @@ impl HotkeyConfigScreen {
     }
 
     fn display_menu(profile: &ConfigProfile) {
+        use crate::menu::{Align, DoubleMenu};
+
         ScreenUtils::clear_console();
-        println!("╔════════════════════════════════════════════╗");
-        println!("║         CONFIGURE HOTKEYS                  ║");
-        println!("╚════════════════════════════════════════════╝");
-        println!();
-        println!("Current Hotkeys:");
-        println!(
-            "  Toggle: {} (optional)",
-            HotkeyManager::key_name(profile.settings.toggle_hotkey)
-        );
-        println!(
-            "  Left:   {}",
-            HotkeyManager::key_name(profile.settings.left_hotkey)
-        );
-        println!(
-            "  Right:  {}",
-            HotkeyManager::key_name(profile.settings.right_hotkey)
-        );
-        println!();
-        println!("NOTE: Toggle hotkey is optional if Left/Right hotkeys are set.");
-        println!();
-        println!("1. Configure Toggle Hotkey (Optional)");
-        println!("2. Configure Left Click Hotkey");
-        println!("3. Configure Right Click Hotkey");
-        println!("4. Reset All Hotkeys");
-        println!("5. Back to Main Menu");
-        println!();
+
+        let toggle_key = HotkeyManager::key_name(profile.settings.toggle_hotkey);
+        let left_key = HotkeyManager::key_name(profile.settings.left_hotkey);
+        let right_key = HotkeyManager::key_name(profile.settings.right_hotkey);
+
+        let menu = DoubleMenu::new(50)
+            .header("CONFIGURE HOTKEYS", Align::Center)
+            .and_then(|m| m.blank())
+            .and_then(|m| m.plain("Current Hotkeys:"))
+            .and_then(|m| m.plain(&format!("  Toggle: {} (optional)", toggle_key)))
+            .and_then(|m| m.plain(&format!("  Left:   {}", left_key)))
+            .and_then(|m| m.plain(&format!("  Right:  {}", right_key)))
+            .and_then(|m| m.blank())
+            .and_then(|m| m.plain("NOTE: Toggle hotkey is optional if Left/Right hotkeys are set."))
+            .and_then(|m| m.blank())
+            .and_then(|m| m.plain("1. Configure Toggle Hotkey (Optional)"))
+            .and_then(|m| m.plain("2. Configure Left Click Hotkey"))
+            .and_then(|m| m.plain("3. Configure Right Click Hotkey"))
+            .and_then(|m| m.plain("4. Reset All Hotkeys"))
+            .and_then(|m| m.plain("5. Back to Main Menu"))
+            .and_then(|m| m.blank());
+
+        if let Ok(m) = menu {
+            let _ = m.finish(&mut std::io::stdout());
+        }
     }
 
     fn handle_menu_selection(

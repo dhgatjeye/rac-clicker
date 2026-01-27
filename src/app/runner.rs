@@ -63,9 +63,13 @@ impl RacApp {
     }
 
     fn print_startup_banner(&self) {
-        println!("\n╔════════════════════════════════════════════╗");
-        println!("║         RAC v2 - Starting...               ║");
-        println!("╚════════════════════════════════════════════╝\n");
+        use crate::menu::{Align, DoubleMenu};
+
+        println!();
+        if let Ok(menu) = DoubleMenu::new(46).header("RAC v2 - Starting...", Align::Center) {
+            let _ = menu.finish(&mut std::io::stdout());
+        }
+        println!();
     }
 
     fn print_running_info(&self) -> RacResult<()> {

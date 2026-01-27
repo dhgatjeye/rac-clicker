@@ -106,10 +106,15 @@ pub fn check_and_update() -> RacResult<()> {
 
     match result {
         UpdateCheckResult::UpdateAvailable(release) => {
+            use crate::menu::{Align, DoubleMenu};
+
             println!("\r                                            ");
-            println!("\n╔══════════════════════════════════════════╗");
-            println!("║           NEW UPDATE AVAILABLE!            ║");
-            println!("╚════════════════════════════════════════════╝");
+            println!();
+
+            if let Ok(menu) = DoubleMenu::new(46).header("NEW UPDATE AVAILABLE!", Align::Center) {
+                let _ = menu.finish(&mut io::stdout());
+            }
+
             println!("\nCurrent Version:  v{}", Version::current());
             println!("New Version:      v{}", release.version);
             println!("Release Name:     {}", release.release_name);

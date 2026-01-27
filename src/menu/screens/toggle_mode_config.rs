@@ -1,6 +1,7 @@
 use super::utils::ScreenUtils;
 use crate::config::{ConfigProfile, SettingsManager};
 use crate::core::{RacResult, ToggleMode};
+use crate::menu::{Align, DoubleMenu};
 
 pub struct ToggleModeConfigScreen;
 
@@ -10,26 +11,30 @@ impl ToggleModeConfigScreen {
         settings_manager: &mut SettingsManager,
     ) -> RacResult<()> {
         ScreenUtils::clear_console();
-        println!("╔════════════════════════════════════════════╗");
-        println!("║        CONFIGURE TOGGLE MODE               ║");
-        println!("╚════════════════════════════════════════════╝");
-        println!();
-        println!("Current: {}", profile.settings.toggle_mode);
-        println!();
-        println!("1. Mouse Hold Mode");
-        println!("   → Press hotkey once to toggle RAC on/off");
-        println!("   → Hold mouse button to click");
-        println!();
-        println!("2. Hotkey Hold Mode");
-        println!("   → Press hotkey once to toggle RAC on/off");
-        println!("   → Clicking only while holding hotkey");
-        println!();
-        println!("3. Hotkey Toggle Mode");
-        println!("   → Press hotkey once to start clicking");
-        println!("   → Press hotkey again to stop clicking");
-        println!();
-        println!("4. Back to Main Menu");
-        println!();
+
+        let current_mode = format!("Current: {}", profile.settings.toggle_mode);
+
+        let menu = DoubleMenu::new(54)
+            .header("CONFIGURE TOGGLE MODE", Align::Center)?
+            .blank()?
+            .plain(&current_mode)?
+            .blank()?
+            .plain("1. Mouse Hold Mode")?
+            .plain("   → Press hotkey once to toggle RAC on/off")?
+            .plain("   → Hold mouse button to click")?
+            .blank()?
+            .plain("2. Hotkey Hold Mode")?
+            .plain("   → Press hotkey once to toggle RAC on/off")?
+            .plain("   → Clicking only while holding hotkey")?
+            .blank()?
+            .plain("3. Hotkey Toggle Mode")?
+            .plain("   → Press hotkey once to start clicking")?
+            .plain("   → Press hotkey again to stop clicking")?
+            .blank()?
+            .plain("4. Back to Main Menu")?
+            .blank()?;
+
+        menu.finish(&mut std::io::stdout())?;
 
         let input = ScreenUtils::prompt("Select mode: ")?;
 

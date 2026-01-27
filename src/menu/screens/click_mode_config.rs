@@ -1,6 +1,7 @@
 use super::utils::ScreenUtils;
 use crate::config::{ConfigProfile, SettingsManager};
 use crate::core::{ClickMode, RacResult};
+use crate::menu::{Align, DoubleMenu};
 
 pub struct ClickModeConfigScreen;
 
@@ -10,17 +11,21 @@ impl ClickModeConfigScreen {
         settings_manager: &mut SettingsManager,
     ) -> RacResult<()> {
         ScreenUtils::clear_console();
-        println!("╔════════════════════════════════════════════╗");
-        println!("║         CONFIGURE CLICK MODE               ║");
-        println!("╚════════════════════════════════════════════╝");
-        println!();
-        println!("Current: {}", profile.settings.click_mode);
-        println!();
-        println!("1. Left Click Only");
-        println!("2. Right Click Only");
-        println!("3. Both (Left + Right simultaneously)");
-        println!("4. Back to Main Menu");
-        println!();
+
+        let current_mode = format!("Current: {}", profile.settings.click_mode);
+
+        let menu = DoubleMenu::new(50)
+            .header("CONFIGURE CLICK MODE", Align::Center)?
+            .blank()?
+            .plain(&current_mode)?
+            .blank()?
+            .plain("1. Left Click Only")?
+            .plain("2. Right Click Only")?
+            .plain("3. Both (Left + Right simultaneously)")?
+            .plain("4. Back to Main Menu")?
+            .blank()?;
+
+        menu.finish(&mut std::io::stdout())?;
 
         let input = ScreenUtils::prompt("Select mode: ")?;
 

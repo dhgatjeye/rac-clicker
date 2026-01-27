@@ -79,27 +79,34 @@ impl ConsoleMenu {
     }
 
     fn display_main_menu(&self) {
-        println!("╔════════════════════════════════════════════╗");
-        println!("║              RAC v2                        ║");
-        println!("╚════════════════════════════════════════════╝");
-        println!();
+        use crate::menu::{Align, DoubleMenu};
 
         let active_server = self.profile.server_registry.active_server_type();
-        println!("  Active Server: {}", active_server);
-        println!();
-        println!("╔════════════════════════════════════════════╗");
-        println!("║              MAIN MENU                     ║");
-        println!("╠════════════════════════════════════════════╣");
-        println!("║  1. Select Server                          ║");
-        println!("║  2. Configure Hotkeys                      ║");
-        println!("║  3. Configure Toggle Mode                  ║");
-        println!("║  4. Configure Click Mode                   ║");
-        println!("║  5. Configure CPS Settings                 ║");
-        println!("║  6. Show Current Settings                  ║");
-        println!("║  7. Start RAC                              ║");
-        println!("║  0. Exit                                   ║");
-        println!("╚════════════════════════════════════════════╝");
-        println!();
+        let active_info = format!("  Active Server: {}", active_server);
+
+        let menu = DoubleMenu::new(46)
+            .header("RAC v2", Align::Center)
+            .and_then(|m| m.blank())
+            .and_then(|m| m.plain(&active_info))
+            .and_then(|m| m.blank())
+            .and_then(|m| m.box_start())
+            .and_then(|m| m.line("MAIN MENU", Align::Center))
+            .and_then(|m| m.divider())
+            .and_then(|m| m.line("  1. Select Server", Align::Left))
+            .and_then(|m| m.line("  2. Configure Hotkeys", Align::Left))
+            .and_then(|m| m.line("  3. Configure Toggle Mode", Align::Left))
+            .and_then(|m| m.line("  4. Configure Click Mode", Align::Left))
+            .and_then(|m| m.line("  5. Configure CPS Settings", Align::Left))
+            .and_then(|m| m.line("  6. Show Current Settings", Align::Left))
+            .and_then(|m| m.line("  7. Start RAC", Align::Left))
+            .and_then(|m| m.line("  0. Exit", Align::Left))
+            .and_then(|m| m.box_end())
+            .and_then(|m| m.blank());
+
+        if let Ok(m) = menu {
+            let _ = m.finish(&mut io::stdout());
+        }
+
         print!("Select option: ");
         io::stdout().flush().ok();
     }

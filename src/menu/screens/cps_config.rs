@@ -9,33 +9,37 @@ impl CpsConfigScreen {
         profile: &mut ConfigProfile,
         settings_manager: &mut SettingsManager,
     ) -> RacResult<()> {
+        use crate::menu::{Align, DoubleMenu};
+
         loop {
             ScreenUtils::clear_console();
-            println!("╔════════════════════════════════════════════╗");
-            println!("║         CONFIGURE CPS SETTINGS             ║");
-            println!("╚════════════════════════════════════════════╝");
-            println!();
 
             let server = profile.server_registry.get_active()?;
-            println!("Server defaults:");
-            println!("  Left CPS:  {}", server.left_click.max_cps);
-            println!("  Right CPS: {}", server.right_click.max_cps);
-            println!();
-            println!("Current overrides:");
-            println!(
-                "  Left:  {} (0 = use server default)",
-                profile.settings.left_cps_override
-            );
-            println!(
-                "  Right: {} (0 = use server default)",
-                profile.settings.right_cps_override
-            );
-            println!();
-            println!("1. Set Left Click CPS");
-            println!("2. Set Right Click CPS");
-            println!("3. Reset to Server Defaults");
-            println!("4. Back to Main Menu");
-            println!();
+
+            let menu = DoubleMenu::new(50)
+                .header("CONFIGURE CPS SETTINGS", Align::Center)?
+                .blank()?
+                .plain("Server defaults:")?
+                .plain(&format!("  Left CPS:  {}", server.left_click.max_cps))?
+                .plain(&format!("  Right CPS: {}", server.right_click.max_cps))?
+                .blank()?
+                .plain("Current overrides:")?
+                .plain(&format!(
+                    "  Left:  {} (0 = use server default)",
+                    profile.settings.left_cps_override
+                ))?
+                .plain(&format!(
+                    "  Right: {} (0 = use server default)",
+                    profile.settings.right_cps_override
+                ))?
+                .blank()?
+                .plain("1. Set Left Click CPS")?
+                .plain("2. Set Right Click CPS")?
+                .plain("3. Reset to Server Defaults")?
+                .plain("4. Back to Main Menu")?
+                .blank()?;
+
+            menu.finish(&mut std::io::stdout())?;
 
             let input = ScreenUtils::prompt("Select option: ")?;
 
