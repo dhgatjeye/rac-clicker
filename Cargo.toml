@@ -5,7 +5,7 @@ authors = ["LuaCodder"]
 edition = "2024"
 description = "Robust Auto Click for CraftRise, Made By LuaCodder"
 repository = "https://github.com/dhgatjeye/rac-clicker"
-license = "GPL-3.0"
+license = "AGPL-3.0"
 readme = "README.md"
 keywords = ["auto-clicker", "minecraft", "craftrise", "sonoyuncu","gaming"]
 
