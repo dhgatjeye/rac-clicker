@@ -22,7 +22,6 @@ impl ClickModeConfigScreen {
             .plain("1. Left Click Only")?
             .plain("2. Right Click Only")?
             .plain("3. Both (Left + Right simultaneously)")?
-            .plain("4. Back to Main Menu")?
             .blank()?;
 
         menu.finish(&mut std::io::stdout())?;
@@ -48,7 +47,6 @@ impl ClickModeConfigScreen {
                 println!("\n✓ Click mode set to: Both (Left + Right)");
                 println!("✓ Settings saved!");
             }
-            "4" => return Ok(()),
             _ => {
                 println!("\n✗ Invalid option!");
             }
