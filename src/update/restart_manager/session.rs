@@ -1,5 +1,6 @@
 use super::error::RestartManagerError;
 use crate::update::restart_manager::info::ProcessInfo;
+use std::mem::MaybeUninit;
 use std::path::Path;
 use windows::Win32::System::RestartManager::{
     RM_PROCESS_INFO, RmEndSession, RmGetList, RmRegisterResources, RmStartSession,
@@ -13,6 +14,8 @@ const RM_REBOOT_REASON_SESSION_MISMATCH: u32 = 0x2;
 const RM_REBOOT_REASON_CRITICAL_PROCESS: u32 = 0x4;
 const RM_REBOOT_REASON_CRITICAL_SERVICE: u32 = 0x8;
 const RM_REBOOT_REASON_DETECTED_SELF: u32 = 0x10;
+
+const MAX_PROCESS_COUNT: usize = 1024;
 
 pub struct RmSession {
     handle: u32,
@@ -75,18 +78,30 @@ impl RmSession {
                 return Ok(Vec::new());
             }
 
-            let buffer_size = ((processes_needed as f32 * 1.2).ceil() as usize)
-                .max(processes_needed as usize + 2);
-            let mut process_info_array =
-                vec![unsafe { std::mem::zeroed::<RM_PROCESS_INFO>() }; buffer_size];
-            let mut processes_returned = buffer_size as u32;
+            let processes_needed_usize = processes_needed as usize;
+            if processes_needed_usize > MAX_PROCESS_COUNT {
+                return Err(RestartManagerError::QueryFailed(0));
+            }
+
+            let buffer_size = processes_needed_usize
+                .saturating_add(4)
+                .min(MAX_PROCESS_COUNT);
+
+            let mut process_info_buffer: Vec<MaybeUninit<RM_PROCESS_INFO>> =
+                Vec::with_capacity(buffer_size);
+
+            unsafe {
+                process_info_buffer.set_len(buffer_size);
+            }
+
+            let mut processes_returned: u32 = buffer_size as u32;
 
             unsafe {
                 let result = RmGetList(
                     self.handle,
                     &mut processes_needed,
                     &mut processes_returned,
-                    Some(process_info_array.as_mut_ptr()),
+                    Some(process_info_buffer.as_mut_ptr() as *mut RM_PROCESS_INFO),
                     &mut reboot_reason,
                 );
 
@@ -105,11 +120,16 @@ impl RmSession {
                 return Err(self.parse_reboot_reason(reboot_reason));
             }
 
+            let valid_count = (processes_returned as usize).min(buffer_size);
             let current_pid = std::process::id();
-            let processes: Vec<ProcessInfo> = process_info_array
+
+            let processes: Vec<ProcessInfo> = process_info_buffer
                 .iter()
-                .take(processes_returned as usize)
-                .map(ProcessInfo::from_rm_process_info)
+                .take(valid_count)
+                .map(|maybe_uninit| {
+                    let info = unsafe { maybe_uninit.assume_init_ref() };
+                    ProcessInfo::from_rm_process_info(info)
+                })
                 .filter(|p| p.process_id != current_pid)
                 .collect();
 
