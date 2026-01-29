@@ -1,4 +1,7 @@
 use crate::core::{RacError, RacResult};
+use crate::update::security::{
+    base64_encode, check_path_for_reparse_points, create_dir, file_write_check,
+};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,11 +22,7 @@ impl UpdateInstaller {
         let backup_dir = PathBuf::from(local_appdata).join("RAC").join("backups");
 
         let created_new_dir = !backup_dir.exists();
-        if created_new_dir {
-            fs::create_dir_all(&backup_dir).map_err(|e| {
-                RacError::UpdateError(format!("Failed to create backup dir: {}", e))
-            })?;
-        }
+        create_dir(&backup_dir)?;
 
         let installer = Self { backup_dir };
 
@@ -35,8 +34,12 @@ impl UpdateInstaller {
     }
 
     pub fn install_update(&self, new_exe_path: &Path) -> RacResult<()> {
+        check_path_for_reparse_points(&self.backup_dir)?;
+
         let current_exe = env::current_exe()
             .map_err(|e| RacError::UpdateError(format!("Cannot get current exe path: {}", e)))?;
+
+        file_write_check(new_exe_path)?;
 
         if !new_exe_path.exists() {
             return Err(RacError::UpdateError("Update file not found".to_string()));
@@ -64,6 +67,8 @@ impl UpdateInstaller {
     }
 
     fn create_backup(&self, current_exe: &Path) -> RacResult<PathBuf> {
+        check_path_for_reparse_points(&self.backup_dir)?;
+
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -78,6 +83,8 @@ impl UpdateInstaller {
             .backup_dir
             .join(format!("{}.backup.{}", exe_name, timestamp));
 
+        file_write_check(&backup_path)?;
+
         fs::copy(current_exe, &backup_path)
             .map_err(|e| RacError::UpdateError(format!("Failed to create backup: {}", e)))?;
 
@@ -85,6 +92,87 @@ impl UpdateInstaller {
         self.cleanup_old_backups()?;
 
         Ok(backup_path)
+    }
+
+    fn validate_path(path: &Path) -> RacResult<String> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| RacError::UpdateError("Invalid path encoding (non-UTF8)".to_string()))?;
+
+        const ALLOWED_CHARS: &str =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/\\:.-_ ()~";
+        const DANGEROUS_UNICODE: &[char] = &[
+            '\u{2018}', '\u{2019}', '\u{201C}', '\u{201D}', '\u{FF07}', '\u{FF02}',
+        ];
+
+        for (idx, c) in path_str.chars().enumerate() {
+            if !ALLOWED_CHARS.contains(c) {
+                return Err(RacError::UpdateError(format!(
+                    "Path contains forbidden character '{}' at position {}",
+                    c, idx
+                )));
+            }
+
+            if DANGEROUS_UNICODE.contains(&c) {
+                return Err(RacError::UpdateError(format!(
+                    "Path contains dangerous Unicode quote '{}' at position {}",
+                    c, idx
+                )));
+            }
+        }
+
+        if path_str.contains("..") {
+            return Err(RacError::UpdateError(
+                "Path contains directory traversal sequence '..'".to_string(),
+            ));
+        }
+
+        if path_str.starts_with("\\\\") {
+            return Err(RacError::UpdateError(
+                "UNC paths are not permitted for security reasons".to_string(),
+            ));
+        }
+
+        if path_str.len() > 32767 {
+            return Err(RacError::UpdateError(
+                "Path exceeds maximum allowed length".to_string(),
+            ));
+        }
+
+        Ok(path_str.to_string())
+    }
+
+    fn validate_filename(name: &str) -> RacResult<()> {
+        const ALLOWED_FILENAME_CHARS: &str =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_";
+
+        if name.is_empty() {
+            return Err(RacError::UpdateError(
+                "Filename cannot be empty".to_string(),
+            ));
+        }
+
+        for c in name.chars() {
+            if !ALLOWED_FILENAME_CHARS.contains(c) {
+                return Err(RacError::UpdateError(format!(
+                    "Filename contains forbidden character '{}'",
+                    c
+                )));
+            }
+        }
+
+        if !name.to_lowercase().ends_with(".exe") {
+            return Err(RacError::UpdateError(
+                "Update file must have .exe extension".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    fn escape_ps_single_quote(s: &str) -> String {
+        s.replace('\'', "''")
     }
 
     fn create_updater_script(
@@ -95,55 +183,25 @@ impl UpdateInstaller {
     ) -> RacResult<()> {
         let script_path = self.backup_dir.join("updater.ps1");
 
-        let validate_path = |path: &Path| -> RacResult<String> {
-            let path_str = path
-                .to_str()
-                .ok_or_else(|| RacError::UpdateError("Invalid path encoding".to_string()))?;
+        file_write_check(&script_path)?;
 
-            if path_str.contains(|c: char| {
-                matches!(
-                    c,
-                    '"' | '\'' | '`' | ';' | '$' | '&' | '|' | '<' | '>' | '\n' | '\r'
-                )
-            }) {
-                return Err(RacError::UpdateError(
-                    "Path contains invalid characters".to_string(),
-                ));
-            }
-
-            Ok(path_str.to_string())
-        };
-
-        let current_exe_str = validate_path(current_exe)?;
-        let new_exe_str = validate_path(new_exe)?;
-        let backup_str = validate_path(backup_path)?;
+        let current_exe_str = Self::validate_path(current_exe)?;
+        let new_exe_str = Self::validate_path(new_exe)?;
+        let backup_str = Self::validate_path(backup_path)?;
 
         let new_exe_name = new_exe
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| RacError::UpdateError("Invalid filename".to_string()))?;
 
-        if !new_exe_name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-        {
-            return Err(RacError::UpdateError(
-                "Filename contains invalid characters".to_string(),
-            ));
-        }
-
-        if !new_exe_name.ends_with(".exe") {
-            return Err(RacError::UpdateError("Invalid file extension".to_string()));
-        }
+        Self::validate_filename(new_exe_name)?;
 
         let current_dir = current_exe
             .parent()
             .ok_or_else(|| RacError::UpdateError("Cannot get current exe directory".to_string()))?;
 
         let new_target_path = current_dir.join(new_exe_name);
-        let new_target_str = validate_path(&new_target_path)?;
-
-        let escape_ps_single_quote = |s: &str| s.replace('\'', "''");
+        let new_target_str = Self::validate_path(&new_target_path)?;
 
         let script = format!(
             r#"
@@ -379,18 +437,28 @@ catch {{
     Invoke-Rollback $_.Exception.Message
 }}
 "#,
-            new_exe = escape_ps_single_quote(&new_exe_str),
-            current_exe = escape_ps_single_quote(&current_exe_str),
-            backup = escape_ps_single_quote(&backup_str),
-            new_target = escape_ps_single_quote(&new_target_str)
+            new_exe = Self::escape_ps_single_quote(&new_exe_str),
+            current_exe = Self::escape_ps_single_quote(&current_exe_str),
+            backup = Self::escape_ps_single_quote(&backup_str),
+            new_target = Self::escape_ps_single_quote(&new_target_str)
         );
 
         fs::write(&script_path, script.as_bytes())
             .map_err(|e| RacError::UpdateError(format!("Failed to write updater script: {}", e)))?;
 
-        let script_path_str = script_path
-            .to_str()
-            .ok_or_else(|| RacError::UpdateError("Invalid script path".to_string()))?;
+        let script_path_str = Self::validate_path(&script_path)?;
+
+        let launcher_command = format!(
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '{}'",
+            Self::escape_ps_single_quote(&script_path_str)
+        );
+
+        let utf16_bytes: Vec<u8> = launcher_command
+            .encode_utf16()
+            .flat_map(|c| c.to_le_bytes())
+            .collect();
+
+        let base64_command = base64_encode(&utf16_bytes);
 
         let result = Command::new("powershell.exe")
             .args([
@@ -399,15 +467,13 @@ catch {{
                 "-ExecutionPolicy",
                 "Bypass",
                 "-NoProfile",
+                "-NonInteractive",
                 "-InputFormat",
                 "None",
                 "-OutputFormat",
                 "Text",
-                "-Command",
-                &format!(
-                    "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & '{}'",
-                    script_path_str.replace('\'', "''")
-                ),
+                "-EncodedCommand",
+                &base64_command,
             ])
             .spawn();
 

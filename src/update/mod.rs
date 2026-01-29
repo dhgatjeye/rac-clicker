@@ -3,6 +3,7 @@ pub mod downloader;
 pub mod http;
 pub mod installer;
 pub mod restart_manager;
+pub mod security;
 pub mod version;
 
 pub use checker::ReleaseInfo;
@@ -13,6 +14,7 @@ use crate::core::RacResult;
 use checker::UpdateChecker;
 use downloader::Downloader;
 use installer::UpdateInstaller;
+use security::{create_dir, is_reparse_point};
 use std::path::PathBuf;
 
 struct TempFileGuard {
@@ -70,13 +72,16 @@ impl UpdateManager {
         println!("\nDownloading update v{}...", release.version);
 
         let temp_dir = std::env::temp_dir().join("rac-update");
-        if !temp_dir.exists() {
-            std::fs::create_dir_all(&temp_dir).map_err(|e| {
-                crate::core::RacError::UpdateError(format!("Failed to create temp dir: {}", e))
-            })?;
-        }
+
+        create_dir(&temp_dir)?;
 
         let download_path = temp_dir.join(format!("rac-clicker-v{}.exe", release.version));
+
+        if download_path.exists() && is_reparse_point(&download_path) {
+            return Err(crate::core::RacError::UpdateError(
+                "Download target is a symbolic link.".to_string(),
+            ));
+        }
 
         let mut temp_guard = TempFileGuard::new(download_path.clone());
 
