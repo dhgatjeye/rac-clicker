@@ -13,6 +13,10 @@ use windows::Win32::Networking::WinHttp::{
 };
 use windows::core::{HSTRING, PCWSTR};
 
+const WINHTTP_OPTION_ENABLE_FEATURE: u32 = 79;
+const WINHTTP_ENABLE_SSL_REVOCATION: u32 = 0x00000001;
+const ERROR_WINHTTP_SECURE_CERT_REV_FAILED: u32 = 12057;
+
 pub struct WinHttpHandle(*mut std::ffi::c_void);
 
 impl WinHttpHandle {
@@ -204,6 +208,17 @@ pub fn configure_request(request: &WinHttpHandle, user_agent: &str) -> RacResult
             Some(&decompression.to_ne_bytes()),
         );
 
+        let revocation_flag: u32 = WINHTTP_ENABLE_SSL_REVOCATION;
+        let result = WinHttpSetOption(
+            Some(request.as_ptr() as *const _),
+            WINHTTP_OPTION_ENABLE_FEATURE,
+            Some(&revocation_flag.to_ne_bytes()),
+        );
+
+        if result.is_err() {
+            eprintln!("Failed to enable SSL revocation checking");
+        }
+
         let headers = HSTRING::from(format!("User-Agent: {}\r\n", user_agent));
         let _ = WinHttpAddRequestHeaders(request.as_ptr(), &headers, WINHTTP_ADDREQ_FLAG_ADD);
 
@@ -215,6 +230,12 @@ pub fn send_request(request: &WinHttpHandle) -> RacResult<()> {
     unsafe {
         WinHttpSendRequest(request.as_ptr(), None, None, 0, 0, 0).map_err(|e| {
             let error_code = windows::Win32::Foundation::GetLastError().0;
+            if error_code == ERROR_WINHTTP_SECURE_CERT_REV_FAILED {
+                return RacError::UpdateError(
+                    "Certificate revocation check failed. The certificate may have been revoked or the CRL/OCSP server is unreachable.".to_string()
+                );
+            }
+
             RacError::UpdateError(format!(
                 "Failed to send request (error code: 0x{:X}, details: {:?})",
                 error_code, e
