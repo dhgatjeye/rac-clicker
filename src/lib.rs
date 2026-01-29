@@ -27,6 +27,4 @@ pub use menu::{ConsoleMenu, MenuCommand};
 
 pub use update::{ReleaseInfo, UpdateManager, Version};
 
-pub use app::{
-    RacApp, check_and_update, flush_console_input, has_configured_hotkeys, is_first_instance,
-};
+pub use app::{RacApp, check_and_update, has_configured_hotkeys, is_first_instance};

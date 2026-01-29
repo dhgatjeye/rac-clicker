@@ -1,7 +1,7 @@
-use rac_clicker::app::ui;
+use rac_clicker::app::{flush_console_input, ui};
 use rac_clicker::{
-    ConsoleMenu, RacApp, RacError, RacResult, check_and_update, flush_console_input,
-    has_configured_hotkeys, is_first_instance,
+    ConsoleMenu, RacApp, RacError, RacResult, check_and_update, has_configured_hotkeys,
+    is_first_instance,
 };
 
 fn main() -> RacResult<()> {

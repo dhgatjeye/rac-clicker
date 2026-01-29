@@ -21,6 +21,18 @@ pub fn wait_for_enter(message: &str) {
     let _ = io::stdin().read_line(&mut input);
 }
 
+pub fn flush_console_input() {
+    use windows::Win32::System::Console::{
+        FlushConsoleInputBuffer, GetStdHandle, STD_INPUT_HANDLE,
+    };
+
+    unsafe {
+        if let Ok(handle) = GetStdHandle(STD_INPUT_HANDLE) {
+            let _ = FlushConsoleInputBuffer(handle);
+        }
+    }
+}
+
 pub fn show_no_hotkeys_error() {
     print_error_banner();
     println!();
