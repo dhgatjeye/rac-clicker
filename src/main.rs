@@ -1,14 +1,17 @@
 use rac_clicker::app::{flush_console_input, ui};
 use rac_clicker::{
-    ConsoleMenu, RacApp, RacError, RacResult, check_and_update, has_configured_hotkeys,
-    is_first_instance,
+    ConsoleMenu, InstanceStatus, RacApp, RacError, RacResult, check_and_update,
+    has_configured_hotkeys, is_first_instance,
 };
 
 fn main() -> RacResult<()> {
-    if !is_first_instance() {
-        flush_console_input();
-        ui::show_already_running_error();
-        std::process::exit(1);
+    match is_first_instance()? {
+        InstanceStatus::First => {}
+        InstanceStatus::AlreadyRunning => {
+            flush_console_input();
+            ui::show_already_running_error();
+            std::process::exit(1);
+        }
     }
 
     if let Err(RacError::UpdateRestart) = check_and_update() {
