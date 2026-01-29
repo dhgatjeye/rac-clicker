@@ -99,24 +99,25 @@ impl UpdateInstaller {
             .to_str()
             .ok_or_else(|| RacError::UpdateError("Invalid path encoding (non-UTF8)".to_string()))?;
 
-        const ALLOWED_CHARS: &str =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/\\:.-_ ()~";
+        const FORBIDDEN_CHARS: &[char] =
+            &['<', '>', '"', '|', '?', '*', '\0', '\n', '\r', '\t', '`'];
+
         const DANGEROUS_UNICODE: &[char] = &[
-            '\u{2018}', '\u{2019}', '\u{201C}', '\u{201D}', '\u{FF07}', '\u{FF02}',
+            '\u{2018}', '\u{2019}', '\u{201C}', '\u{201D}', '\u{FF07}', '\u{FF02}', '\u{0060}',
         ];
 
         for (idx, c) in path_str.chars().enumerate() {
-            if !ALLOWED_CHARS.contains(c) {
+            if FORBIDDEN_CHARS.contains(&c) {
                 return Err(RacError::UpdateError(format!(
-                    "Path contains forbidden character '{}' at position {}",
-                    c, idx
+                    "Path contains forbidden character at position {}",
+                    idx
                 )));
             }
 
             if DANGEROUS_UNICODE.contains(&c) {
                 return Err(RacError::UpdateError(format!(
-                    "Path contains dangerous Unicode quote '{}' at position {}",
-                    c, idx
+                    "Path contains dangerous Unicode character at position {}",
+                    idx
                 )));
             }
         }
@@ -145,6 +146,10 @@ impl UpdateInstaller {
     fn validate_filename(name: &str) -> RacResult<()> {
         const ALLOWED_FILENAME_CHARS: &str =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_";
+        const RESERVED_NAMES: &[&str] = &[
+            "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+            "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        ];
 
         if name.is_empty() {
             return Err(RacError::UpdateError(
@@ -164,6 +169,13 @@ impl UpdateInstaller {
         if !name.to_lowercase().ends_with(".exe") {
             return Err(RacError::UpdateError(
                 "Update file must have .exe extension".to_string(),
+            ));
+        }
+
+        let name_without_ext = &name[..name.len() - 4];
+        if RESERVED_NAMES.contains(&name_without_ext.to_uppercase().as_str()) {
+            return Err(RacError::UpdateError(
+                "Filename uses Windows reserved name".to_string(),
             ));
         }
 
