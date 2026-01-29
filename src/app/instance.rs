@@ -1,50 +1,89 @@
+use crate::core::{RacError, RacResult};
+use crate::update::security::{check_path_for_reparse_points, create_dir};
+use std::fs::{File, OpenOptions};
+use std::path::PathBuf;
 use std::sync::OnceLock;
-use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE};
-use windows::Win32::System::Threading::CreateMutexW;
-use windows::core::w;
 
-struct MutexHandle(HANDLE);
+struct LockFileGuard {
+    _file: File,
+    path: PathBuf,
+}
 
-unsafe impl Send for MutexHandle {}
-unsafe impl Sync for MutexHandle {}
-
-impl Drop for MutexHandle {
+impl Drop for LockFileGuard {
     fn drop(&mut self) {
-        unsafe {
-            let _ = CloseHandle(self.0);
-        }
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 
-static INSTANCE_MUTEX: OnceLock<MutexHandle> = OnceLock::new();
+static INSTANCE_LOCK: OnceLock<LockFileGuard> = OnceLock::new();
+
+fn get_lock_file_path() -> RacResult<PathBuf> {
+    let local_appdata = std::env::var("LOCALAPPDATA")
+        .map_err(|_| RacError::UpdateError("Cannot find LOCALAPPDATA".to_string()))?;
+
+    let lock_dir = PathBuf::from(local_appdata).join("RAC");
+
+    check_path_for_reparse_points(&lock_dir)?;
+
+    if !lock_dir.exists() {
+        create_dir(&lock_dir)?;
+    }
+
+    Ok(lock_dir.join(".session.lock"))
+}
 
 pub fn is_first_instance() -> bool {
-    unsafe {
-        let mutex_name = w!("Global\\RACv2ApplicationMutex");
+    let lock_path = match get_lock_file_path() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
 
-        match CreateMutexW(None, true, mutex_name) {
-            Ok(handle) => {
-                if GetLastError() == ERROR_ALREADY_EXISTS {
-                    let _ = CloseHandle(handle);
-                    false
-                } else {
-                    let _ = INSTANCE_MUTEX.set(MutexHandle(handle));
-                    true
-                }
+    if let Some(parent) = lock_path.parent()
+        && check_path_for_reparse_points(parent).is_err()
+    {
+        return false;
+    }
+
+    match OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&lock_path)
+    {
+        Ok(file) => {
+            if try_lock_file(&file) {
+                let guard = LockFileGuard {
+                    _file: file,
+                    path: lock_path,
+                };
+                INSTANCE_LOCK.set(guard).is_ok()
+            } else {
+                false
             }
-            Err(_) => false,
         }
+        Err(_) => false,
     }
 }
 
-pub fn flush_console_input() {
-    use windows::Win32::System::Console::{
-        FlushConsoleInputBuffer, GetStdHandle, STD_INPUT_HANDLE,
+fn try_lock_file(file: &File) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx,
     };
 
+    let handle = HANDLE(file.as_raw_handle());
+    let mut overlapped = unsafe { std::mem::zeroed() };
+
     unsafe {
-        if let Ok(handle) = GetStdHandle(STD_INPUT_HANDLE) {
-            let _ = FlushConsoleInputBuffer(handle);
-        }
+        LockFileEx(
+            handle,
+            LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+            Some(0),
+            1,
+            0,
+            &mut overlapped,
+        )
+        .is_ok()
     }
 }
