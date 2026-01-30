@@ -1,6 +1,7 @@
 use crate::core::{RacError, RacResult};
 use crate::update::security::{
-    base64_encode, check_path_for_reparse_points, create_dir, file_write_check,
+    base64_encode, check_path_for_reparse_points, copy_file, create_dir, file_write_check,
+    write_file,
 };
 use std::env;
 use std::fs;
@@ -83,10 +84,7 @@ impl UpdateInstaller {
             .backup_dir
             .join(format!("{}.backup.{}", exe_name, timestamp));
 
-        file_write_check(&backup_path)?;
-
-        fs::copy(current_exe, &backup_path)
-            .map_err(|e| RacError::UpdateError(format!("Failed to create backup: {}", e)))?;
+        copy_file(current_exe, &backup_path)?;
 
         self.notify_file_change(&backup_path);
         self.cleanup_old_backups()?;
@@ -455,8 +453,7 @@ catch {{
             new_target = Self::escape_ps_single_quote(&new_target_str)
         );
 
-        fs::write(&script_path, script.as_bytes())
-            .map_err(|e| RacError::UpdateError(format!("Failed to write updater script: {}", e)))?;
+        write_file(&script_path, script.as_bytes())?;
 
         let script_path_str = Self::validate_path(&script_path)?;
 

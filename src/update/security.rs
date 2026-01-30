@@ -1,8 +1,11 @@
 use crate::core::{RacError, RacResult};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::os::windows::fs::OpenOptionsExt;
 use std::path::Path;
 use windows::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_REPARSE_POINT, GetFileAttributesW, INVALID_FILE_ATTRIBUTES,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, GetFileAttributesW,
+    INVALID_FILE_ATTRIBUTES,
 };
 use windows::core::HSTRING;
 
@@ -82,7 +85,7 @@ pub fn create_dir(path: &Path) -> RacResult<()> {
     if path.exists() {
         if is_reparse_point(path) {
             return Err(RacError::UpdateError(format!(
-                "Directory '{}' exists but is a symbolic link or junction.",
+                "Directory '{}' is a symbolic link or junction.",
                 path.display()
             )));
         }
@@ -100,7 +103,7 @@ pub fn create_dir(path: &Path) -> RacResult<()> {
     if is_reparse_point(path) {
         let _ = fs::remove_dir(path);
         return Err(RacError::UpdateError(format!(
-            " Directory '{}' became a reparse point after creation.",
+            "Directory '{}' became a reparse point after creation.",
             path.display()
         )));
     }
@@ -121,4 +124,136 @@ pub fn file_write_check(path: &Path) -> RacResult<()> {
     }
 
     Ok(())
+}
+
+pub fn write_file(path: &Path, contents: &[u8]) -> RacResult<()> {
+    if let Some(parent) = path.parent() {
+        check_path_for_reparse_points(parent)?;
+    }
+
+    if path.exists() {
+        let file_result = OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+            .open(path);
+
+        if let Ok(_file) = file_result
+            && is_reparse_point(path)
+        {
+            return Err(RacError::UpdateError(format!(
+                "File '{}' is a symbolic link. Refusing to overwrite.",
+                path.display()
+            )));
+        }
+    }
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+        .map_err(|e| {
+            RacError::UpdateError(format!("Failed to create file '{}': {}", path.display(), e))
+        })?;
+
+    if is_reparse_point(path) {
+        drop(file);
+        return Err(RacError::UpdateError(format!(
+            "File '{}' became a symbolic link during creation.",
+            path.display()
+        )));
+    }
+
+    file.write_all(contents).map_err(|e| {
+        RacError::UpdateError(format!(
+            "Failed to write to file '{}': {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    file.sync_all().map_err(|e| {
+        RacError::UpdateError(format!(
+            "Failed to sync_all file '{}': {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    Ok(())
+}
+
+pub fn copy_file(src: &Path, dst: &Path) -> RacResult<u64> {
+    if is_reparse_point(src) {
+        return Err(RacError::UpdateError(format!(
+            "Source file '{}' is a symbolic link.",
+            src.display()
+        )));
+    }
+
+    if let Some(parent) = dst.parent() {
+        check_path_for_reparse_points(parent)?;
+    }
+
+    if dst.exists() && is_reparse_point(dst) {
+        return Err(RacError::UpdateError(format!(
+            "Destination '{}' is a symbolic link.",
+            dst.display()
+        )));
+    }
+
+    let mut src_file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(src)
+        .map_err(|e| {
+            RacError::UpdateError(format!("Failed to open source '{}': {}", src.display(), e))
+        })?;
+
+    if is_reparse_point(src) {
+        return Err(RacError::UpdateError(format!(
+            "Source '{}' is a symbolic link.",
+            src.display()
+        )));
+    }
+
+    let mut dst_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(dst)
+        .map_err(|e| {
+            RacError::UpdateError(format!(
+                "Failed to create destination '{}': {}",
+                dst.display(),
+                e
+            ))
+        })?;
+
+    if is_reparse_point(dst) {
+        drop(dst_file);
+        return Err(RacError::UpdateError(format!(
+            "Destination '{}' became a symbolic link.",
+            dst.display()
+        )));
+    }
+
+    let bytes_copied = std::io::copy(&mut src_file, &mut dst_file).map_err(|e| {
+        RacError::UpdateError(format!(
+            "Failed to copy '{}' to '{}': {}",
+            src.display(),
+            dst.display(),
+            e
+        ))
+    })?;
+
+    dst_file.sync_all().map_err(|e| {
+        RacError::UpdateError(format!(
+            "Failed to sync_all file '{}': {}",
+            dst.display(),
+            e
+        ))
+    })?;
+
+    Ok(bytes_copied)
 }
