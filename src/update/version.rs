@@ -25,6 +25,16 @@ impl Version {
     pub fn parse(s: &str) -> Result<Self, VersionError> {
         let s = s.trim().trim_start_matches('v').trim_start_matches('V');
 
+        if !s
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
+        {
+            return Err(VersionError::InvalidCharacters(format!(
+                "Version string contains forbidden characters: '{}'",
+                s
+            )));
+        }
+
         let core_version = s
             .split('-')
             .next()
@@ -88,6 +98,7 @@ impl Ord for Version {
 pub enum VersionError {
     InvalidFormat(String),
     InvalidNumber(String),
+    InvalidCharacters(String),
 }
 
 impl fmt::Display for VersionError {
@@ -95,6 +106,7 @@ impl fmt::Display for VersionError {
         match self {
             Self::InvalidFormat(s) => write!(f, "Invalid version format: {}", s),
             Self::InvalidNumber(s) => write!(f, "Invalid version number: {}", s),
+            Self::InvalidCharacters(s) => write!(f, "Invalid version characters: {}", s),
         }
     }
 }
