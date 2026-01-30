@@ -63,11 +63,12 @@ impl HotkeyManager {
             return None;
         }
 
+        let index = vk_code as usize;
         let current_state = self.is_pressed(vk_code);
-        let last_state = unsafe { *self.key_states.get_unchecked(vk_code as usize) };
 
-        unsafe {
-            *self.key_states.get_unchecked_mut(vk_code as usize) = current_state;
+        let last_state = self.key_states.get(index).copied().unwrap_or(false);
+        if let Some(state) = self.key_states.get_mut(index) {
+            *state = current_state;
         }
 
         match (last_state, current_state) {
