@@ -88,11 +88,7 @@ impl RmSession {
                 .min(MAX_PROCESS_COUNT);
 
             let mut process_info_buffer: Vec<MaybeUninit<RM_PROCESS_INFO>> =
-                Vec::with_capacity(buffer_size);
-
-            unsafe {
-                process_info_buffer.set_len(buffer_size);
-            }
+                (0..buffer_size).map(|_| MaybeUninit::zeroed()).collect();
 
             let mut processes_returned: u32 = buffer_size as u32;
 
