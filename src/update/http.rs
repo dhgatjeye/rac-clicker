@@ -16,6 +16,7 @@ use windows::core::{HSTRING, PCWSTR};
 const WINHTTP_OPTION_ENABLE_FEATURE: u32 = 79;
 const WINHTTP_ENABLE_SSL_REVOCATION: u32 = 0x00000001;
 const ERROR_WINHTTP_SECURE_CERT_REV_FAILED: u32 = 12057;
+const MAX_RESPONSE_SIZE: usize = 5 * 1024 * 1024;
 
 pub struct WinHttpHandle(*mut std::ffi::c_void);
 
@@ -302,6 +303,14 @@ pub fn read_response_body(request: &WinHttpHandle) -> RacResult<Vec<u8>> {
         if result.is_err() || bytes_read == 0 {
             break;
         }
+
+        if response_data.len().saturating_add(bytes_read as usize) > MAX_RESPONSE_SIZE {
+            return Err(RacError::UpdateError(format!(
+                "Response too large (exceeds {} MB limit)",
+                MAX_RESPONSE_SIZE / (1024 * 1024)
+            )));
+        }
+
         response_data.extend_from_slice(&buffer[..bytes_read as usize]);
     }
 
