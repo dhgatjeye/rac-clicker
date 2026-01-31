@@ -125,7 +125,7 @@ impl UpdateInstaller {
 
         for (idx, c) in path_str.chars().enumerate() {
             let is_allowed = c.is_ascii_alphanumeric()
-                || matches!(c, '\\' | '/' | ':' | '.' | '-' | '_' | ' ' | '\'');
+                || matches!(c, '\\' | '/' | ':' | '.' | '-' | '_' | ' ' | '\'' | '~');
 
             if !is_allowed {
                 return Err(RacError::UpdateError(format!(
