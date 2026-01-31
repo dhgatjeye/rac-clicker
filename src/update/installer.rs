@@ -97,10 +97,9 @@ impl UpdateInstaller {
             .to_str()
             .ok_or_else(|| RacError::UpdateError("Invalid path encoding (non-UTF8)".to_string()))?;
 
-        const FORBIDDEN_CHARS: &[char] = &[
-            '<', '>', '"', '|', '?', '*', '\0', '\n', '\r', '\t', '`', '$', '(', ')', '{', '}',
-            ';', '&', '#', '@',
-        ];
+        const FORBIDDEN_PATH_CHARS: &[char] = &['<', '>', '"', '|', '?', '*', '\0'];
+
+        const DANGEROUS_SHELL_CHARS: &[char] = &['\n', '\r', '\t', '`', '$', ';', '&', '#'];
 
         const DANGEROUS_UNICODE: &[char] = &[
             '\u{2018}', '\u{2019}', '\u{201C}', '\u{201D}', '\u{FF07}', '\u{FF02}', '\u{0060}',
@@ -108,9 +107,16 @@ impl UpdateInstaller {
         ];
 
         for (idx, c) in path_str.chars().enumerate() {
-            if FORBIDDEN_CHARS.contains(&c) {
+            if FORBIDDEN_PATH_CHARS.contains(&c) {
                 return Err(RacError::UpdateError(format!(
-                    "Path contains forbidden character at position {}",
+                    "Path contains forbidden Windows character '{}' at position {}",
+                    c, idx
+                )));
+            }
+
+            if DANGEROUS_SHELL_CHARS.contains(&c) {
+                return Err(RacError::UpdateError(format!(
+                    "Path contains dangerous shell character at position {}",
                     idx
                 )));
             }
@@ -121,16 +127,11 @@ impl UpdateInstaller {
                     idx
                 )));
             }
-        }
 
-        for (idx, c) in path_str.chars().enumerate() {
-            let is_allowed = c.is_ascii_alphanumeric()
-                || matches!(c, '\\' | '/' | ':' | '.' | '-' | '_' | ' ' | '\'' | '~');
-
-            if !is_allowed {
+            if (c as u32) < 32 && c != '\0' {
                 return Err(RacError::UpdateError(format!(
-                    "Path contains disallowed character '{}' at position {}",
-                    c, idx
+                    "Path contains control character at position {}",
+                    idx
                 )));
             }
         }
@@ -157,11 +158,13 @@ impl UpdateInstaller {
     }
 
     fn validate_filename(name: &str) -> RacResult<()> {
-        const ALLOWED_FILENAME_CHARS: &str =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_";
+        const FORBIDDEN_FILENAME_CHARS: &[char] =
+            &['<', '>', ':', '"', '/', '\\', '|', '?', '*', '\0'];
+
         const RESERVED_NAMES: &[&str] = &[
             "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
-            "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+            "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
+            "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
         ];
 
         if name.is_empty() {
@@ -171,11 +174,17 @@ impl UpdateInstaller {
         }
 
         for c in name.chars() {
-            if !ALLOWED_FILENAME_CHARS.contains(c) {
+            if FORBIDDEN_FILENAME_CHARS.contains(&c) {
                 return Err(RacError::UpdateError(format!(
                     "Filename contains forbidden character '{}'",
                     c
                 )));
+            }
+
+            if (c as u32) < 32 {
+                return Err(RacError::UpdateError(
+                    "Filename contains control character".to_string(),
+                ));
             }
         }
 
@@ -186,6 +195,12 @@ impl UpdateInstaller {
         }
 
         let name_without_ext = &name[..name.len() - 4];
+        if name_without_ext.ends_with(' ') || name_without_ext.ends_with('.') {
+            return Err(RacError::UpdateError(
+                "Filename cannot end with space or period".to_string(),
+            ));
+        }
+
         if RESERVED_NAMES.contains(&name_without_ext.to_uppercase().as_str()) {
             return Err(RacError::UpdateError(
                 "Filename uses Windows reserved name".to_string(),
