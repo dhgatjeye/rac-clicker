@@ -114,6 +114,28 @@ impl ConsoleMenu {
     fn set_console_title(&self, title: &str) -> RacResult<()> {
         use std::ffi::CString;
 
+        for (idx, c) in title.chars().enumerate() {
+            if !c.is_ascii() {
+                return Err(RacError::InvalidInput(format!(
+                    "Title contains non-ASCII character at position {}",
+                    idx
+                )));
+            }
+
+            if c.is_ascii_control() {
+                return Err(RacError::InvalidInput(format!(
+                    "Title contains control character at position {}",
+                    idx
+                )));
+            }
+        }
+
+        if title.len() > 256 {
+            return Err(RacError::InvalidInput(
+                "Title exceeds maximum length of 256 characters".into(),
+            ));
+        }
+
         let title_cstring = CString::new(title)
             .map_err(|_| RacError::InvalidInput("Title contains null byte".into()))?;
 
