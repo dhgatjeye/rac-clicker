@@ -97,11 +97,14 @@ impl UpdateInstaller {
             .to_str()
             .ok_or_else(|| RacError::UpdateError("Invalid path encoding (non-UTF8)".to_string()))?;
 
-        const FORBIDDEN_CHARS: &[char] =
-            &['<', '>', '"', '|', '?', '*', '\0', '\n', '\r', '\t', '`'];
+        const FORBIDDEN_CHARS: &[char] = &[
+            '<', '>', '"', '|', '?', '*', '\0', '\n', '\r', '\t', '`', '$', '(', ')', '{', '}',
+            ';', '&', '#', '@',
+        ];
 
         const DANGEROUS_UNICODE: &[char] = &[
             '\u{2018}', '\u{2019}', '\u{201C}', '\u{201D}', '\u{FF07}', '\u{FF02}', '\u{0060}',
+            '\u{FF04}', '\u{FE69}', '\u{FF1B}', '\u{FF06}',
         ];
 
         for (idx, c) in path_str.chars().enumerate() {
@@ -116,6 +119,18 @@ impl UpdateInstaller {
                 return Err(RacError::UpdateError(format!(
                     "Path contains dangerous Unicode character at position {}",
                     idx
+                )));
+            }
+        }
+
+        for (idx, c) in path_str.chars().enumerate() {
+            let is_allowed = c.is_ascii_alphanumeric()
+                || matches!(c, '\\' | '/' | ':' | '.' | '-' | '_' | ' ' | '\'');
+
+            if !is_allowed {
+                return Err(RacError::UpdateError(format!(
+                    "Path contains disallowed character '{}' at position {}",
+                    c, idx
                 )));
             }
         }
@@ -182,7 +197,18 @@ impl UpdateInstaller {
 
     #[inline]
     fn escape_ps_single_quote(s: &str) -> String {
-        s.replace('\'', "''")
+        let mut result = String::with_capacity(s.len() + 16);
+
+        for c in s.chars() {
+            match c {
+                '\'' => result.push_str("''"),
+                '$' => result.push_str("`$"),
+                '`' => result.push_str("``"),
+                _ => result.push(c),
+            }
+        }
+
+        result
     }
 
     fn create_updater_script(
