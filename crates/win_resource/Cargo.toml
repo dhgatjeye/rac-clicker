@@ -1,0 +1,15 @@
+[package]
+name = "win_resource"
+version = "0.1.0"
+edition = "2024"
+authors = ["LuaCodder"]
+description = "Windows resource embedding module for Cargo build scripts"
+license = "AGPL-3.0"
+repository = "https://github.com/dhgatjeye/rac-clicker"
+keywords = ["windows", "resources", "build", "msvc", "rc"]
+categories = ["development-tools::build-utils", "os::windows-apis"]
+
+[dependencies]
+
+[features]
+default = []

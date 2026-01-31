@@ -6,15 +6,13 @@ fn main() {
 
     let (major, minor, patch) = parse_semver(&version);
 
-    let compile_args = [
-        format!("CARGO_PKG_VERSION={version}"),
-        format!("CARGO_PKG_VERSION_MAJOR={major}"),
-        format!("CARGO_PKG_VERSION_MINOR={minor}"),
-        format!("CARGO_PKG_VERSION_PATCH={patch}"),
-    ];
-
-    embed_resource::compile("resources/RAC.rc", &compile_args)
+    win_resource::ResourceCompiler::new("resources/RAC.rc")
+        .define("CARGO_PKG_VERSION", &version)
+        .define("CARGO_PKG_VERSION_MAJOR", major.to_string())
+        .define("CARGO_PKG_VERSION_MINOR", minor.to_string())
+        .define("CARGO_PKG_VERSION_PATCH", patch.to_string())
         .manifest_required()
+        .compile()
         .expect("Failed to compile Windows resource file");
 
     println!("cargo:rerun-if-changed=resources/RAC.rc");
