@@ -1,13 +1,15 @@
 use crate::core::{RacError, RacResult};
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::Path;
 use windows::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, GetFileAttributesW,
-    INVALID_FILE_ATTRIBUTES,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, GetDiskFreeSpaceExW,
+    GetFileAttributesW, INVALID_FILE_ATTRIBUTES,
 };
 use windows::core::HSTRING;
+
+const DISK_SPACE_SAFETY_MULTIPLIER: u64 = 3;
 
 pub fn base64_encode(data: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -256,4 +258,120 @@ pub fn copy_file(src: &Path, dst: &Path) -> RacResult<u64> {
     })?;
 
     Ok(bytes_copied)
+}
+
+pub fn create_file_exclusively(path: &Path) -> RacResult<File> {
+    if let Some(parent) = path.parent() {
+        check_path_for_reparse_points(parent)?;
+    }
+
+    if path.exists() {
+        if is_reparse_point(path) {
+            return Err(RacError::UpdateError(format!(
+                "File '{}' is a symbolic link. Refusing to overwrite.",
+                path.display()
+            )));
+        }
+
+        fs::remove_file(path).map_err(|e| {
+            RacError::UpdateError(format!(
+                "Failed to remove existing file '{}': {}",
+                path.display(),
+                e
+            ))
+        })?;
+    }
+
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)
+        .map_err(|e| {
+            RacError::UpdateError(format!(
+                "Failed to create file '{}': {}. \
+                 If file exists unexpectedly, a race condition may have occurred.",
+                path.display(),
+                e
+            ))
+        })?;
+
+    if is_reparse_point(path) {
+        drop(file);
+        let _ = fs::remove_file(path);
+        return Err(RacError::UpdateError(format!(
+            "File '{}' became a reparse point after creation.",
+            path.display()
+        )));
+    }
+
+    Ok(file)
+}
+
+pub fn verify_disk_space(path: &Path, required_bytes: u64) -> RacResult<()> {
+    let drive_root = get_drive_root(path);
+
+    let mut free_bytes_available: u64 = 0;
+
+    let result = unsafe {
+        GetDiskFreeSpaceExW(
+            &HSTRING::from(drive_root.as_str()),
+            Some(&mut free_bytes_available),
+            None,
+            None,
+        )
+    };
+
+    if result.is_err() {
+        eprintln!(
+            "Could not verify disk space on '{}'. Proceeding with update.",
+            drive_root
+        );
+        return Ok(());
+    }
+
+    let required_with_margin = required_bytes.saturating_mul(DISK_SPACE_SAFETY_MULTIPLIER);
+
+    if free_bytes_available < required_with_margin {
+        let free_mb = free_bytes_available / (1024 * 1024);
+        let required_mb = required_with_margin / (1024 * 1024);
+
+        return Err(RacError::UpdateError(format!(
+            "Insufficient disk space for update.\n\
+             Required: {} MB (including safety margin for backup)\n\
+             Available: {} MB\n\
+             Please free up at least {} MB on drive {} and try again.",
+            required_mb,
+            free_mb,
+            required_mb.saturating_sub(free_mb),
+            drive_root
+        )));
+    }
+
+    Ok(())
+}
+
+fn get_drive_root(path: &Path) -> String {
+    let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+
+    if let Some(path_str) = abs_path.to_str() {
+        if path_str.len() >= 2 {
+            let bytes = path_str.as_bytes();
+            if bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
+                return format!("{}:\\", (bytes[0] as char).to_ascii_uppercase());
+            }
+        }
+
+        if path_str.starts_with("\\\\") {
+            let parts: Vec<&str> = path_str
+                .trim_start_matches("\\\\")
+                .splitn(3, '\\')
+                .collect();
+            if parts.len() >= 2 {
+                return format!("\\\\{}\\{}\\", parts[0], parts[1]);
+            }
+        }
+    }
+
+    "C:\\".to_string()
 }

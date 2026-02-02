@@ -14,7 +14,7 @@ use crate::core::RacResult;
 use checker::UpdateChecker;
 use downloader::Downloader;
 use installer::UpdateInstaller;
-use security::{create_dir, is_reparse_point};
+use security::{create_dir, verify_disk_space};
 use std::path::PathBuf;
 
 struct TempFileGuard {
@@ -77,10 +77,8 @@ impl UpdateManager {
 
         let download_path = temp_dir.join(format!("rac-clicker-v{}.exe", release.version));
 
-        if download_path.exists() && is_reparse_point(&download_path) {
-            return Err(crate::core::RacError::UpdateError(
-                "Download target is a symbolic link.".to_string(),
-            ));
+        if release.asset_size > 0 {
+            verify_disk_space(&download_path, release.asset_size)?;
         }
 
         let mut temp_guard = TempFileGuard::new(download_path.clone());
