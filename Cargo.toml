@@ -1,6 +1,6 @@
 [package]
 name = "rac-clicker"
-version = "0.10.0"
+version = "0.10.1"
 authors = ["LuaCodder"]
 edition = "2024"
 description = "Robust Auto Click for CraftRise, Made By LuaCodder"
