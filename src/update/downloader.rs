@@ -3,7 +3,7 @@ use crate::update::http::{
     configure_request, connect, handle_status_code, open_request, open_session, parse_url,
     query_content_length, query_status_code, send_request,
 };
-use std::fs::OpenOptions;
+use crate::update::security::{create_file_exclusively, is_reparse_point};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -131,12 +131,7 @@ fn download_to_file(
     content_length: u64,
     progress_callback: Option<ProgressCallback>,
 ) -> RacResult<PathBuf> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(dest_path)
-        .map_err(|e| RacError::UpdateError(format!("Failed to create file: {}", e)))?;
+    let mut file = create_file_exclusively(dest_path)?;
 
     let mut buffer = vec![0u8; 16384];
     let mut total_downloaded: u64 = 0;
@@ -167,13 +162,20 @@ fn download_to_file(
         }
     }
 
-    file.flush()
-        .map_err(|e| RacError::UpdateError(format!("Flush failed: {}", e)))?;
+    file.sync_all()
+        .map_err(|e| RacError::UpdateError(format!("Sync failed: {}", e)))?;
 
     if content_length > 0 && total_downloaded != content_length {
         return Err(RacError::UpdateError(format!(
             "Download incomplete: expected {} bytes, got {}",
             content_length, total_downloaded
+        )));
+    }
+
+    if is_reparse_point(dest_path) {
+        return Err(RacError::UpdateError(format!(
+            "Downloaded file '{}' became a reparse point. Update aborted.",
+            dest_path.display()
         )));
     }
 
