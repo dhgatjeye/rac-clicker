@@ -1,0 +1,17 @@
+[package]
+name = "config_migration"
+version = "0.1.0"
+edition = "2024"
+authors = ["LuaCodder"]
+description = "Configuration schema migration system for JSON-based settings"
+license = "AGPL-3.0"
+repository = "https://github.com/dhgatjeye/rac-clicker"
+keywords = ["config", "migration", "json", "schema", "settings"]
+categories = ["config", "development-tools"]
+
+[dependencies]
+serde_json = { version = "1.0.149", features = ["preserve_order"] }
+
+[features]
+default = ["migration"]
+migration = []
