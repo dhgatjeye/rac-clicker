@@ -74,6 +74,15 @@ impl SettingsDisplayScreen {
         println!("  Right:         {} {}", right_cps, right_status);
         println!();
 
+        Self::print_section("Application");
+        let auto_update_status = if profile.settings.auto_update_check {
+            "Enabled"
+        } else {
+            "Disabled"
+        };
+        println!("  Auto-Update:   {}", auto_update_status);
+        println!();
+
         stdout.flush()?;
         ScreenUtils::press_enter_to_continue();
         Ok(())

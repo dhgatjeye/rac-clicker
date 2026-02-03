@@ -2,8 +2,8 @@ use crate::config::{ConfigProfile, SettingsManager};
 use crate::core::{RacError, RacResult};
 use crate::menu::MenuCommand;
 use crate::menu::screens::{
-    ClickModeConfigScreen, CpsConfigScreen, HotkeyConfigScreen, ScreenUtils, ServerSelectionScreen,
-    SettingsDisplayScreen, ToggleModeConfigScreen,
+    AutoUpdateConfigScreen, ClickModeConfigScreen, CpsConfigScreen, HotkeyConfigScreen,
+    ScreenUtils, ServerSelectionScreen, SettingsDisplayScreen, ToggleModeConfigScreen,
 };
 use std::io::{self, Write};
 use windows::Win32::System::Console::SetConsoleTitleA;
@@ -62,6 +62,9 @@ impl ConsoleMenu {
                     ScreenUtils::clear_console();
                     return Ok(());
                 }
+                Some(MenuCommand::ConfigureAutoUpdate) => {
+                    AutoUpdateConfigScreen::show(&mut self.profile, &mut self.settings_manager)?
+                }
                 Some(MenuCommand::Exit) => {
                     println!("\n✓ Exiting RAC v2...");
                     println!("✓ Cleaning up resources...");
@@ -99,6 +102,7 @@ impl ConsoleMenu {
             .and_then(|m| m.line("  5. Configure CPS Settings", Align::Left))
             .and_then(|m| m.line("  6. Show Current Settings", Align::Left))
             .and_then(|m| m.line("  7. Start RAC", Align::Left))
+            .and_then(|m| m.line("  8. Configure Auto-Update", Align::Left))
             .and_then(|m| m.line("  0. Exit", Align::Left))
             .and_then(|m| m.box_end())
             .and_then(|m| m.blank());

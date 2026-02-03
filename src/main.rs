@@ -1,6 +1,6 @@
 use rac_clicker::app::{flush_console_input, ui};
 use rac_clicker::{
-    ConsoleMenu, InstanceStatus, RacApp, RacError, RacResult, check_and_update,
+    ConsoleMenu, InstanceStatus, RacApp, RacError, RacResult, SettingsManager, check_and_update,
     has_configured_hotkeys, is_first_instance,
 };
 
@@ -14,7 +14,9 @@ fn main() -> RacResult<()> {
         }
     }
 
-    if let Err(RacError::UpdateRestart) = check_and_update() {
+    if SettingsManager::is_auto_update_enabled()
+        && let Err(RacError::UpdateRestart) = check_and_update()
+    {
         return Ok(());
     }
 

@@ -1,3 +1,4 @@
+pub mod auto_update_config;
 pub mod click_mode_config;
 pub mod cps_config;
 pub mod hotkey_config;
@@ -6,6 +7,7 @@ pub mod settings_display;
 pub mod toggle_mode_config;
 pub mod utils;
 
+pub use auto_update_config::AutoUpdateConfigScreen;
 pub use click_mode_config::ClickModeConfigScreen;
 pub use cps_config::CpsConfigScreen;
 pub use hotkey_config::HotkeyConfigScreen;

@@ -7,6 +7,7 @@ pub enum MenuCommand {
     ConfigureCPS,
     ShowSettings,
     StartRAC,
+    ConfigureAutoUpdate,
     Exit,
 }
 
@@ -20,6 +21,7 @@ impl MenuCommand {
             "5" => Some(Self::ConfigureCPS),
             "6" => Some(Self::ShowSettings),
             "7" => Some(Self::StartRAC),
+            "8" => Some(Self::ConfigureAutoUpdate),
             "0" => Some(Self::Exit),
             _ => None,
         }
@@ -34,6 +36,7 @@ impl MenuCommand {
             Self::ConfigureCPS => "Configure CPS Settings",
             Self::ShowSettings => "Show Current Settings",
             Self::StartRAC => "Start RAC",
+            Self::ConfigureAutoUpdate => "Configure Auto-Update",
             Self::Exit => "Exit",
         }
     }
