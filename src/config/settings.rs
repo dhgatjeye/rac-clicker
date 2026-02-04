@@ -49,7 +49,7 @@ impl SettingsManager {
         })
     }
 
-    pub fn get_settings_path() -> RacResult<PathBuf> {
+    fn get_settings_path() -> RacResult<PathBuf> {
         let local_appdata = std::env::var("LOCALAPPDATA")
             .map_err(|e| RacError::ConfigError(format!("Cannot find LOCALAPPDATA: {}", e)))?;
 

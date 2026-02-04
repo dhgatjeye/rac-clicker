@@ -113,6 +113,7 @@ impl Migrator {
     pub fn migrate_if_needed(&self, path: &Path) -> MigrationResult<MigrationReport> {
         if !path.exists() {
             if self.config.verbose {
+                #[cfg(debug_assertions)]
                 eprintln!("[Migration] Configuration file does not exist, skipping migration");
             }
             return Ok(MigrationReport::no_migration_needed());
@@ -126,6 +127,7 @@ impl Migrator {
         let target_version = SchemaVersion::new(self.config.target_version);
 
         if self.config.verbose {
+            #[cfg(debug_assertions)]
             eprintln!(
                 "[Migration] Detected schema version: {detected_version}, target: {target_version}"
             );
@@ -136,6 +138,7 @@ impl Migrator {
             .needs_migration(detected_version, target_version)
         {
             if self.config.verbose {
+                #[cfg(debug_assertions)]
                 eprintln!("[Migration] No migration needed");
             }
             return Ok(MigrationReport {
@@ -167,6 +170,7 @@ impl Migrator {
         Self::write_atomic(path, &migrated_value)?;
 
         if self.config.verbose {
+            #[cfg(debug_assertions)]
             eprintln!(
                 "[Migration] Successfully migrated from {detected_version} to {target_version}"
             );
@@ -202,6 +206,7 @@ impl Migrator {
         })?;
 
         if self.config.verbose {
+            #[cfg(debug_assertions)]
             eprintln!("[Migration] Created backup at: {}", backup_path.display());
         }
 
