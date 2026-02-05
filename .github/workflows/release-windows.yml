@@ -236,7 +236,7 @@ jobs:
 
       - name: Upload artifact for inspection
         if: ${{ inputs.dry_run }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.artifact.outputs.ARTIFACT_NAME }}
           path: ${{ steps.artifact.outputs.ARTIFACT_PATH }}
