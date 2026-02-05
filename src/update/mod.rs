@@ -10,7 +10,7 @@ pub use checker::ReleaseInfo;
 pub use downloader::ProgressCallback;
 pub use version::Version;
 
-use crate::core::RacResult;
+use crate::core::{RacResult, remove_file, validate_path};
 use checker::UpdateChecker;
 use downloader::Downloader;
 use installer::UpdateInstaller;
@@ -39,7 +39,7 @@ impl TempFileGuard {
 impl Drop for TempFileGuard {
     fn drop(&mut self) {
         if !self.keep && self.path.exists() {
-            let _ = std::fs::remove_file(&self.path);
+            remove_file(&self.path);
         }
     }
 }
@@ -71,11 +71,16 @@ impl UpdateManager {
     ) -> RacResult<()> {
         println!("\nDownloading update v{}...", release.version);
 
-        let temp_dir = std::env::temp_dir().join("rac-update");
+        let system_temp = std::env::temp_dir();
+        validate_path(&system_temp)?;
+
+        let temp_dir = system_temp.join("rac-update");
+        validate_path(&temp_dir)?;
 
         create_dir(&temp_dir)?;
 
         let download_path = temp_dir.join(format!("rac-clicker-v{}.exe", release.version));
+        validate_path(&download_path)?;
 
         if release.asset_size > 0 {
             verify_disk_space(&download_path, release.asset_size)?;

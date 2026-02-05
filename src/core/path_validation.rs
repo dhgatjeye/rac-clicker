@@ -13,7 +13,7 @@ const RESERVED_NAMES: &[&str] = &[
 
 const MAX_PATH_LENGTH: usize = 32767;
 
-pub fn validate_path(path: &Path) -> RacResult<()> {
+pub fn validate_path(path: &Path) -> RacResult<&Path> {
     let path_str = path
         .to_str()
         .ok_or_else(|| RacError::ValidationError("Path contains invalid UTF-8".to_string()))?;
@@ -75,11 +75,11 @@ pub fn validate_path(path: &Path) -> RacResult<()> {
         }
     }
 
-    Ok(())
+    Ok(path)
 }
 
 pub fn remove_file(path: &Path) {
-    if validate_path(path).is_ok() {
-        let _ = std::fs::remove_file(path);
+    if let Ok(validated) = validate_path(path) {
+        let _ = std::fs::remove_file(validated);
     }
 }

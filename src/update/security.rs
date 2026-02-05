@@ -57,14 +57,14 @@ pub fn is_reparse_point(path: &Path) -> bool {
 }
 
 pub fn check_path_for_reparse_points(path: &Path) -> RacResult<()> {
-    validate_path(path)?;
+    let path = validate_path(path)?;
 
     let mut current = path.to_path_buf();
 
     loop {
-        validate_path(&current)?;
+        let current_validated = validate_path(&current)?;
 
-        if current.exists() && is_reparse_point(&current) {
+        if current_validated.exists() && is_reparse_point(current_validated) {
             return Err(RacError::UpdateError(
                 "Path component is a symbolic link or junction. Please remove it and try again."
                     .to_string(),
@@ -86,7 +86,7 @@ pub fn check_path_for_reparse_points(path: &Path) -> RacResult<()> {
 }
 
 pub fn create_dir(path: &Path) -> RacResult<()> {
-    validate_path(path)?;
+    let path = validate_path(path)?;
 
     check_path_for_reparse_points(path)?;
 
@@ -113,7 +113,7 @@ pub fn create_dir(path: &Path) -> RacResult<()> {
 }
 
 pub fn file_write_check(path: &Path) -> RacResult<()> {
-    validate_path(path)?;
+    let path = validate_path(path)?;
 
     if let Some(parent) = path.parent() {
         check_path_for_reparse_points(parent)?;
@@ -129,7 +129,7 @@ pub fn file_write_check(path: &Path) -> RacResult<()> {
 }
 
 pub fn write_file(path: &Path, contents: &[u8]) -> RacResult<()> {
-    validate_path(path)?;
+    let path = validate_path(path)?;
 
     if let Some(parent) = path.parent() {
         check_path_for_reparse_points(parent)?;
@@ -174,8 +174,8 @@ pub fn write_file(path: &Path, contents: &[u8]) -> RacResult<()> {
 }
 
 pub fn copy_file(src: &Path, dst: &Path) -> RacResult<u64> {
-    validate_path(src)?;
-    validate_path(dst)?;
+    let src = validate_path(src)?;
+    let dst = validate_path(dst)?;
 
     if is_reparse_point(src) {
         return Err(RacError::UpdateError(
@@ -230,7 +230,7 @@ pub fn copy_file(src: &Path, dst: &Path) -> RacResult<u64> {
 }
 
 pub fn create_file_exclusively(path: &Path) -> RacResult<File> {
-    validate_path(path)?;
+    let path = validate_path(path)?;
 
     if let Some(parent) = path.parent() {
         check_path_for_reparse_points(parent)?;
@@ -272,7 +272,7 @@ pub fn create_file_exclusively(path: &Path) -> RacResult<File> {
 }
 
 pub fn verify_disk_space(path: &Path, required_bytes: u64) -> RacResult<()> {
-    validate_path(path)?;
+    let path = validate_path(path)?;
 
     let drive_root = get_drive_root(path)?;
 
@@ -317,7 +317,7 @@ pub fn verify_disk_space(path: &Path, required_bytes: u64) -> RacResult<()> {
 }
 
 fn get_drive_root(path: &Path) -> RacResult<String> {
-    validate_path(path)?;
+    let path = validate_path(path)?;
 
     let abs_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 

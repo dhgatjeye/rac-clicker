@@ -39,7 +39,7 @@ impl Downloader {
         dest_path: &Path,
         progress_callback: Option<ProgressCallback>,
     ) -> RacResult<PathBuf> {
-        validate_path(dest_path)?;
+        let dest_path = validate_path(dest_path)?;
 
         let mut attempts = 0;
         let mut last_error = None;
@@ -81,7 +81,7 @@ impl Downloader {
         dest_path: &Path,
         progress_callback: Option<ProgressCallback>,
     ) -> RacResult<PathBuf> {
-        validate_path(dest_path)?;
+        let dest_path = validate_path(dest_path)?;
 
         let user_agent = format!("RAC-Downloader/{}", env!("CARGO_PKG_VERSION"));
 
@@ -135,7 +135,7 @@ fn download_to_file(
     content_length: u64,
     progress_callback: Option<ProgressCallback>,
 ) -> RacResult<PathBuf> {
-    validate_path(dest_path)?;
+    let dest_path = validate_path(dest_path)?;
 
     let mut file = create_file_exclusively(dest_path)?;
 
