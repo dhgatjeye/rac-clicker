@@ -1,4 +1,4 @@
-use crate::core::{ClickMode, RacError, RacResult, ServerType, ToggleMode};
+use crate::core::{ClickMode, RacError, RacResult, ServerType, ToggleMode, validate_path};
 use config_migration::{CURRENT_SCHEMA_VERSION, migrate_config_file};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
@@ -44,6 +44,8 @@ impl SettingsManager {
     }
 
     pub fn new_with_path(path: PathBuf) -> RacResult<Self> {
+        validate_path(&path)?;
+
         Ok(Self {
             settings_path: path,
         })
@@ -53,7 +55,10 @@ impl SettingsManager {
         let local_appdata = std::env::var("LOCALAPPDATA")
             .map_err(|e| RacError::ConfigError(format!("Cannot find LOCALAPPDATA: {}", e)))?;
 
-        let rac_dir = PathBuf::from(local_appdata).join("RAC");
+        let local_appdata_path = PathBuf::from(&local_appdata);
+        validate_path(&local_appdata_path)?;
+
+        let rac_dir = local_appdata_path.join("RAC");
 
         if !rac_dir.exists() {
             std::fs::create_dir_all(&rac_dir)?;
@@ -95,6 +100,8 @@ impl SettingsManager {
     }
 
     fn backup_corrupted_file(&self) -> RacResult<()> {
+        validate_path(&self.settings_path)?;
+
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -104,6 +111,8 @@ impl SettingsManager {
             .settings_path
             .with_extension(format!("json.corrupt.{}", timestamp));
 
+        validate_path(&backup_path)?;
+
         std::fs::rename(&self.settings_path, &backup_path).map_err(|e| {
             RacError::IoError(format!("Failed to backup corrupted settings: {}", e))
         })?;
@@ -112,9 +121,14 @@ impl SettingsManager {
     }
 
     pub fn save(&self, settings: &Settings) -> RacResult<()> {
+        validate_path(&self.settings_path)?;
+
         let json = serde_json::to_string_pretty(settings)?;
 
         let temp_path = self.settings_path.with_extension("tmp");
+
+        validate_path(&temp_path)?;
+
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)

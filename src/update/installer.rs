@@ -35,6 +35,8 @@ impl UpdateInstaller {
     }
 
     pub fn install_update(&self, new_exe_path: &Path) -> RacResult<()> {
+        Self::validate_path(new_exe_path)?;
+
         check_path_for_reparse_points(&self.backup_dir)?;
 
         let current_exe = env::current_exe()

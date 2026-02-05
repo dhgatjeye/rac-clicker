@@ -1,4 +1,4 @@
-use crate::core::{RacError, RacResult};
+use crate::core::{RacError, RacResult, remove_file, validate_path};
 use crate::update::http::{
     configure_request, connect, handle_status_code, open_request, open_session, parse_url,
     query_content_length, query_status_code, send_request,
@@ -39,6 +39,8 @@ impl Downloader {
         dest_path: &Path,
         progress_callback: Option<ProgressCallback>,
     ) -> RacResult<PathBuf> {
+        validate_path(dest_path)?;
+
         let mut attempts = 0;
         let mut last_error = None;
 
@@ -52,7 +54,7 @@ impl Downloader {
                     if let Some(ref err) = last_error {
                         let err_str = err.to_string();
                         if err_str.contains("404") || err_str.contains("403") {
-                            let _ = std::fs::remove_file(dest_path);
+                            remove_file(dest_path);
                             return Err(last_error.unwrap());
                         }
                     }
@@ -61,13 +63,13 @@ impl Downloader {
                         let delay = INITIAL_RETRY_DELAY_MS * 2u64.pow((attempts - 1) as u32);
                         thread::sleep(Duration::from_millis(delay));
 
-                        let _ = std::fs::remove_file(dest_path);
+                        remove_file(dest_path);
                     }
                 }
             }
         }
 
-        let _ = std::fs::remove_file(dest_path);
+        remove_file(dest_path);
         Err(last_error.unwrap_or_else(|| {
             RacError::UpdateError("Failed to download after retries".to_string())
         }))
@@ -79,6 +81,8 @@ impl Downloader {
         dest_path: &Path,
         progress_callback: Option<ProgressCallback>,
     ) -> RacResult<PathBuf> {
+        validate_path(dest_path)?;
+
         let user_agent = format!("RAC-Downloader/{}", env!("CARGO_PKG_VERSION"));
 
         let url_parts = parse_url(url, 2048)?;
@@ -118,7 +122,7 @@ impl Downloader {
         );
 
         if result.is_err() {
-            let _ = std::fs::remove_file(dest_path);
+            remove_file(dest_path);
         }
 
         result
@@ -131,6 +135,8 @@ fn download_to_file(
     content_length: u64,
     progress_callback: Option<ProgressCallback>,
 ) -> RacResult<PathBuf> {
+    validate_path(dest_path)?;
+
     let mut file = create_file_exclusively(dest_path)?;
 
     let mut buffer = vec![0u8; 16384];
@@ -173,10 +179,9 @@ fn download_to_file(
     }
 
     if is_reparse_point(dest_path) {
-        return Err(RacError::UpdateError(format!(
-            "Downloaded file '{}' became a reparse point. Update aborted.",
-            dest_path.display()
-        )));
+        return Err(RacError::UpdateError(
+            "Downloaded file became a reparse point. Update aborted.".to_string(),
+        ));
     }
 
     Ok(dest_path.to_path_buf())
