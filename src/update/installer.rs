@@ -189,11 +189,16 @@ impl UpdateInstaller {
         let new_exe_str = Self::validate_path(new_exe)?;
         let backup_str = Self::validate_path(backup_path)?;
 
-        if let Some(current_dir) = current_exe.parent() {
-            check_path_for_reparse_points(current_dir)?;
-        }
+        let current_dir = current_exe
+            .parent()
+            .ok_or_else(|| RacError::UpdateError("Cannot get current exe directory".to_string()))?;
 
-        let new_target_str = &current_exe_str;
+        let stable_exe_name = format!("{}.exe", env!("CARGO_PKG_NAME"));
+        let new_target_path = current_dir.join(&stable_exe_name);
+
+        check_path_for_reparse_points(&new_target_path)?;
+
+        let new_target_str = Self::validate_path(&new_target_path)?;
 
         let script = format!(
             r#"
@@ -326,6 +331,42 @@ function Remove-UpdateFiles {{
     }}
 }}
 
+function Update-TaskbarShortcuts {{
+    param(
+        [string]$OldPath,
+        [string]$NewPath
+    )
+
+    if ($OldPath -eq $NewPath) {{ return }}
+
+    $taskbarDir = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
+    if (-not (Test-Path $taskbarDir)) {{ return }}
+%
+    try {{
+        $shell = New-Object -ComObject WScript.Shell
+        $lnkFiles = Get-ChildItem -Path $taskbarDir -Filter '*.lnk' -ErrorAction SilentlyContinue
+
+        foreach ($lnk in $lnkFiles) {{
+            try {{
+                $shortcut = $shell.CreateShortcut($lnk.FullName)
+                if ($shortcut.TargetPath -eq $OldPath) {{
+                    $shortcut.TargetPath = $NewPath
+                    $shortcut.Save()
+                    Write-Log "Updated taskbar shortcut: $($lnk.Name)" -Level Success
+                }}
+            }}
+            catch {{
+                Write-Log "Could not update shortcut $($lnk.Name): $_" -Level Warning
+            }}
+        }}
+
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell) | Out-Null
+    }}
+    catch {{
+        Write-Log "Taskbar shortcut migration failed (non-critical): $_" -Level Warning
+    }}
+}}
+
 function Wait-ForProcessToExit {{
     param([string]$ExePath)
 
@@ -370,6 +411,13 @@ try {{
     }}
 
     Write-Log "Installing new version..." -Level Info
+
+    if ((Test-Path $Config.NewTargetPath) -and
+        (Get-Item $Config.NewTargetPath -Force).Attributes -band
+        [System.IO.FileAttributes]::ReparsePoint) {{
+        Invoke-Rollback "Target path is a symbolic link or junction — refusing to overwrite"
+    }}
+
     $retryCount = 0
     $success = $false
 
@@ -405,6 +453,8 @@ try {{
                 Write-Log "Could not remove old executable (non-critical): $_" -Level Warning
             }}
         }}
+
+        Update-TaskbarShortcuts -OldPath $Config.CurrentExePath -NewPath $Config.NewTargetPath
     }}
 
     Write-Log "Cleaning up temporary files..." -Level Info
@@ -432,7 +482,7 @@ catch {{
             new_exe = Self::escape_ps_single_quote(&new_exe_str),
             current_exe = Self::escape_ps_single_quote(&current_exe_str),
             backup = Self::escape_ps_single_quote(&backup_str),
-            new_target = Self::escape_ps_single_quote(new_target_str)
+            new_target = Self::escape_ps_single_quote(&new_target_str)
         );
 
         write_file(&script_path, script.as_bytes())?;
