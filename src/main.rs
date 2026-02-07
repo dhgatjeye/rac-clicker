@@ -4,7 +4,18 @@ use rac_clicker::{
     has_configured_hotkeys, is_first_instance,
 };
 
+fn set_app_user_model_id() {
+    use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+    use windows::core::w;
+
+    unsafe {
+        let _ = SetCurrentProcessExplicitAppUserModelID(w!("RAC.RACClicker"));
+    }
+}
+
 fn main() -> RacResult<()> {
+    set_app_user_model_id();
+
     match is_first_instance()? {
         InstanceStatus::First => {}
         InstanceStatus::AlreadyRunning => {

@@ -79,7 +79,7 @@ impl UpdateManager {
 
         create_dir(&temp_dir)?;
 
-        let download_path = temp_dir.join(format!("rac-clicker-v{}.exe", release.version));
+        let download_path = temp_dir.join(format!("rac-clicker-update-v{}.exe", release.version));
         validate_path(&download_path)?;
 
         if release.asset_size > 0 {

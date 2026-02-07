@@ -159,59 +159,6 @@ impl UpdateInstaller {
         Ok(path_str.to_string())
     }
 
-    fn validate_filename(name: &str) -> RacResult<()> {
-        const FORBIDDEN_FILENAME_CHARS: &[char] =
-            &['<', '>', ':', '"', '/', '\\', '|', '?', '*', '\0'];
-
-        const RESERVED_NAMES: &[&str] = &[
-            "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
-            "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
-            "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
-        ];
-
-        if name.is_empty() {
-            return Err(RacError::UpdateError(
-                "Filename cannot be empty".to_string(),
-            ));
-        }
-
-        for c in name.chars() {
-            if FORBIDDEN_FILENAME_CHARS.contains(&c) {
-                return Err(RacError::UpdateError(format!(
-                    "Filename contains forbidden character '{}'",
-                    c
-                )));
-            }
-
-            if (c as u32) < 32 {
-                return Err(RacError::UpdateError(
-                    "Filename contains control character".to_string(),
-                ));
-            }
-        }
-
-        if !name.to_lowercase().ends_with(".exe") {
-            return Err(RacError::UpdateError(
-                "Update file must have .exe extension".to_string(),
-            ));
-        }
-
-        let name_without_ext = &name[..name.len() - 4];
-        if name_without_ext.ends_with(' ') || name_without_ext.ends_with('.') {
-            return Err(RacError::UpdateError(
-                "Filename cannot end with space or period".to_string(),
-            ));
-        }
-
-        if RESERVED_NAMES.contains(&name_without_ext.to_uppercase().as_str()) {
-            return Err(RacError::UpdateError(
-                "Filename uses Windows reserved name".to_string(),
-            ));
-        }
-
-        Ok(())
-    }
-
     #[inline]
     fn escape_ps_single_quote(s: &str) -> String {
         let mut result = String::with_capacity(s.len() + 16);
@@ -242,19 +189,11 @@ impl UpdateInstaller {
         let new_exe_str = Self::validate_path(new_exe)?;
         let backup_str = Self::validate_path(backup_path)?;
 
-        let new_exe_name = new_exe
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| RacError::UpdateError("Invalid filename".to_string()))?;
+        if let Some(current_dir) = current_exe.parent() {
+            check_path_for_reparse_points(current_dir)?;
+        }
 
-        Self::validate_filename(new_exe_name)?;
-
-        let current_dir = current_exe
-            .parent()
-            .ok_or_else(|| RacError::UpdateError("Cannot get current exe directory".to_string()))?;
-
-        let new_target_path = current_dir.join(new_exe_name);
-        let new_target_str = Self::validate_path(&new_target_path)?;
+        let new_target_str = &current_exe_str;
 
         let script = format!(
             r#"
@@ -493,7 +432,7 @@ catch {{
             new_exe = Self::escape_ps_single_quote(&new_exe_str),
             current_exe = Self::escape_ps_single_quote(&current_exe_str),
             backup = Self::escape_ps_single_quote(&backup_str),
-            new_target = Self::escape_ps_single_quote(&new_target_str)
+            new_target = Self::escape_ps_single_quote(new_target_str)
         );
 
         write_file(&script_path, script.as_bytes())?;
