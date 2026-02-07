@@ -93,7 +93,7 @@ jobs:
           NAME="${{ steps.package.outputs.NAME }}"
           VERSION="${{ steps.version.outputs.VERSION }}"
           BUILT_EXE="target/x86_64-pc-windows-gnu/release/$NAME.exe"
-          ARTIFACT_NAME="$NAME-v$VERSION.exe"
+          ARTIFACT_NAME="$NAME.exe"
           
           if [ ! -f "$BUILT_EXE" ]; then
             echo "Error: Built executable not found at $BUILT_EXE"

@@ -108,7 +108,7 @@ if (-not (Test-Path $OutDirAbsolute)) {
 }
 
 # Build output filename and copy
-$artifactName = ("{0}-v{1}.exe" -f $name, $version)
+$artifactName = ("{0}.exe" -f $name)
 $artifactPath = Join-Path $OutDirAbsolute $artifactName
 
 Write-Info ("Copying {0} to {1}" -f $builtExe, $artifactPath)
